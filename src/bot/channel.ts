@@ -74,6 +74,7 @@ import {
 
 const DEBOUNCE_MS = 600;
 const STREAM_TERMINAL_GRACE_MS = 3000;
+const FINAL_SUMMARY_NOTIFY_AFTER_MS = 60_000;
 const REACTION_CLEANUP_GRACE_MS = 1000;
 
 const BRIDGE_AGENT_INSTRUCTIONS = [
@@ -1038,7 +1039,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           );
         },
       });
-      if (finalState.fallbackUsed) {
+      if (finalState.fallbackUsed || finalState.finalNotificationNeeded) {
         await sendFinalAnswerFallback({
           channel,
           chatId,
@@ -1046,7 +1047,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           state: finalAnswerOnlyState(finalState.state),
           replyMode,
           sendOpts,
-          reason: 'card-stream-terminal',
+          reason: finalState.fallbackUsed ? 'card-stream-terminal' : 'card-stream-complete',
         });
       }
     } else if (replyMode === 'markdown') {
@@ -1090,7 +1091,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           }
         },
       });
-      if (finalState.fallbackUsed) {
+      if (finalState.fallbackUsed || finalState.finalNotificationNeeded) {
         await sendFinalAnswerFallback({
           channel,
           chatId,
@@ -1098,7 +1099,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           state: finalAnswerOnlyState(finalState.state),
           replyMode,
           sendOpts,
-          reason: 'markdown-stream-terminal',
+          reason: finalState.fallbackUsed ? 'markdown-stream-terminal' : 'markdown-stream-complete',
         });
       }
     } else {
@@ -1140,7 +1141,11 @@ export async function sendFinalAnswerFallback(input: {
   sendOpts: { replyTo: string; replyInThread?: boolean };
   reason: string;
 }): Promise<void> {
-  const body = renderText(finalAnswerOnlyState(input.state)).trim();
+  const body = renderText({
+    ...finalAnswerOnlyState(input.state),
+    terminal: 'running',
+    footer: null,
+  }).trim();
   if (!body) {
     log.warn('outbound', 'final-fallback-empty', {
       scope: input.scope,
@@ -1385,13 +1390,24 @@ async function processAgentStream(
       state = finalizeIfRunning(state);
     }
   }
-  log.info('card', 'final', { scope, terminal: state.terminal, interrupted: handle.interrupted });
-  reportMetric('run_e2e_ms', Date.now() - runStart, { terminal: state.terminal });
+  const durationMs = Date.now() - runStart;
+  state = { ...state, durationMs };
+  log.info('card', 'final', {
+    scope,
+    terminal: state.terminal,
+    interrupted: handle.interrupted,
+    durationMs,
+  });
+  reportMetric('run_e2e_ms', durationMs, { terminal: state.terminal });
   await flush(state);
   if (handle.interrupted) {
     await handle.run.stop();
   }
   return state;
+}
+
+function shouldSendLongRunFinalNotification(state: RunState): boolean {
+  return (state.durationMs ?? 0) >= FINAL_SUMMARY_NOTIFY_AFTER_MS;
 }
 
 export async function awaitRenderAwareStream(input: {
@@ -1400,7 +1416,7 @@ export async function awaitRenderAwareStream(input: {
   renderDone: Promise<RunState>;
   producerStarted: () => boolean;
   fallback: (state: RunState) => Promise<void>;
-}): Promise<{ state: RunState; fallbackUsed: boolean }> {
+}): Promise<{ state: RunState; fallbackUsed: boolean; finalNotificationNeeded: boolean }> {
   const streamResult = input.streamDone.then(
     () => ({ kind: 'stream' as const, ok: true as const }),
     (err) => ({ kind: 'stream' as const, ok: false as const, err }),
@@ -1416,7 +1432,7 @@ export async function awaitRenderAwareStream(input: {
       const rendered = await renderResult;
       if (!rendered.ok) throw rendered.err;
       await runFallbackReply(input.mode, rendered.state, input.fallback);
-      return { state: rendered.state, fallbackUsed: true };
+      return { state: rendered.state, fallbackUsed: true, finalNotificationNeeded: true };
     }
     throw first.err;
   }
@@ -1424,13 +1440,17 @@ export async function awaitRenderAwareStream(input: {
   if (first.kind === 'stream') {
     const rendered = await renderResult;
     if (!rendered.ok) throw rendered.err;
-    return { state: rendered.state, fallbackUsed: false };
+    return {
+      state: rendered.state,
+      fallbackUsed: false,
+      finalNotificationNeeded: shouldSendLongRunFinalNotification(rendered.state),
+    };
   }
 
   if (!input.producerStarted()) {
     log.warn('stream', 'producer-not-started-before-agent-terminal', { mode: input.mode });
     await runFallbackReply(input.mode, first.state, input.fallback);
-    return { state: first.state, fallbackUsed: true };
+    return { state: first.state, fallbackUsed: true, finalNotificationNeeded: true };
   }
 
   const terminal = await Promise.race([
@@ -1447,10 +1467,14 @@ export async function awaitRenderAwareStream(input: {
         log.fail('stream', result.err, { mode: input.mode, step: 'stream-terminal-late' });
       }
     });
-    return { state: first.state, fallbackUsed: true };
+    return { state: first.state, fallbackUsed: true, finalNotificationNeeded: true };
   }
   if (!terminal.ok) throw terminal.err;
-  return { state: first.state, fallbackUsed: false };
+  return {
+    state: first.state,
+    fallbackUsed: false,
+    finalNotificationNeeded: shouldSendLongRunFinalNotification(first.state),
+  };
 }
 
 async function runFallbackReply(

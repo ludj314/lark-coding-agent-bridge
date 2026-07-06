@@ -26,6 +26,8 @@ export interface RunState {
   /** Set when terminal === 'idle_timeout' — how long claude was idle before
    * the watchdog gave up (so the message can say "N 分钟无响应"). */
   idleTimeoutMinutes?: number;
+  /** Elapsed time from agent stream processing start to terminal state. */
+  durationMs?: number;
 }
 
 export const initialState: RunState = {

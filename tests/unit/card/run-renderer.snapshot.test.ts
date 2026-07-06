@@ -70,6 +70,28 @@ describe('run card renderer snapshots', () => {
     expectCard(markIdleTimeout(stateFrom([{ type: 'text', delta: 'partial' }]), 15)).toMatchSnapshot();
   });
 
+  it('shows an explicit done marker when a completed card has prior content', () => {
+    const card = JSON.stringify(renderCard(stateFrom([
+      { type: 'tool_use', id: 'tool-1', name: 'TaskCreate', input: { subject: 'x' } },
+      { type: 'tool_result', id: 'tool-1', output: 'ok', isError: false },
+      { type: 'done', terminationReason: 'normal' },
+    ])));
+
+    expect(card).toContain('✅ 已完成');
+    expect(card).not.toContain('正在调用工具');
+  });
+
+  it('shows an explicit done marker in markdown text mode', () => {
+    const text = renderText(stateFrom([
+      { type: 'text', delta: 'Final answer' },
+      { type: 'done', terminationReason: 'normal' },
+    ]));
+
+    expect(text).toContain('Final answer');
+    expect(text).toContain('✅ 已完成');
+    expect(text).not.toContain('正在调用工具');
+  });
+
   it('renders markdown text mode without card-only controls', () => {
     const state = stateFrom([
       { type: 'thinking', delta: 'hidden reasoning' },

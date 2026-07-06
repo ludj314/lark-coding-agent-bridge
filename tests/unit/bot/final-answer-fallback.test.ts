@@ -3,8 +3,8 @@ import { awaitRenderAwareStream, sendFinalAnswerFallback } from '../../../src/bo
 import type { RunState } from '../../../src/card/run-state.js';
 
 describe('final answer fallback', () => {
-  it('does not request fallback when the stream finishes normally', async () => {
-    const state = finalState('最终结论：任务已完成。');
+  it('does not request a final notification for short healthy streams', async () => {
+    const state = finalState('最终结论：任务已完成。', 59_999);
 
     const result = await awaitRenderAwareStream({
       mode: 'markdown',
@@ -16,7 +16,23 @@ describe('final answer fallback', () => {
       },
     });
 
-    expect(result).toEqual({ state, fallbackUsed: false });
+    expect(result).toEqual({ state, fallbackUsed: false, finalNotificationNeeded: false });
+  });
+
+  it('requests a final notification for healthy streams lasting at least one minute', async () => {
+    const state = finalState('最终结论：任务已完成。', 60_000);
+
+    const result = await awaitRenderAwareStream({
+      mode: 'markdown',
+      streamDone: Promise.resolve(),
+      renderDone: Promise.resolve(state),
+      producerStarted: () => true,
+      fallback: async () => {
+        throw new Error('fallback should not run on a healthy stream');
+      },
+    });
+
+    expect(result).toEqual({ state, fallbackUsed: false, finalNotificationNeeded: true });
   });
 
   it('requests fallback when the agent finishes before the stream producer starts', async () => {
@@ -31,7 +47,7 @@ describe('final answer fallback', () => {
       fallback,
     });
 
-    expect(result).toEqual({ state, fallbackUsed: true });
+    expect(result).toEqual({ state, fallbackUsed: true, finalNotificationNeeded: true });
     expect(fallback).toHaveBeenCalledWith(state);
   });
 
@@ -88,11 +104,12 @@ describe('final answer fallback', () => {
   });
 });
 
-function finalState(content: string): RunState {
+function finalState(content: string, durationMs = 0): RunState {
   return {
     blocks: [{ kind: 'text', content, streaming: false }],
     reasoning: { content: '', active: false },
     footer: null,
     terminal: 'done',
+    durationMs,
   };
 }

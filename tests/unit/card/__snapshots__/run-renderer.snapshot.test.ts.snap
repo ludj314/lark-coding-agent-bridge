@@ -139,6 +139,11 @@ exports[`run card renderer snapshots > collapses consecutive tools while preserv
         "tag": "collapsible_panel",
         "vertical_spacing": "8px",
       },
+      {
+        "content": "✅ 已完成",
+        "tag": "markdown",
+        "text_size": "notation",
+      },
     ],
   },
   "config": {
@@ -258,6 +263,11 @@ exports[`run card renderer snapshots > renders active and completed thinking 2`]
         "content": "final answer",
         "tag": "markdown",
       },
+      {
+        "content": "✅ 已完成",
+        "tag": "markdown",
+        "text_size": "notation",
+      },
     ],
   },
   "config": {
@@ -275,7 +285,7 @@ exports[`run card renderer snapshots > renders done, error, interrupted, and idl
   "body": {
     "elements": [
       {
-        "content": "_（未返回内容）_",
+        "content": "✅ 已完成（未返回内容）",
         "tag": "markdown",
         "text_size": "notation",
       },
@@ -547,6 +557,11 @@ pwd
         "tag": "collapsible_panel",
         "vertical_spacing": "8px",
       },
+      {
+        "content": "✅ 已完成",
+        "tag": "markdown",
+        "text_size": "notation",
+      },
     ],
   },
   "config": {
@@ -598,6 +613,11 @@ ENOENT
         "padding": "8px 8px 8px 8px",
         "tag": "collapsible_panel",
         "vertical_spacing": "8px",
+      },
+      {
+        "content": "✅ 已完成",
+        "tag": "markdown",
+        "text_size": "notation",
       },
     ],
   },
