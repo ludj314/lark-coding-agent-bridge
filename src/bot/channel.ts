@@ -1025,7 +1025,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         },
         sendOpts,
       );
-      await awaitRenderAwareStream({
+      const finalState = await awaitRenderAwareStream({
         mode: replyMode,
         streamDone,
         renderDone,
@@ -1038,6 +1038,17 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           );
         },
       });
+      if (finalState.fallbackUsed) {
+        await sendFinalAnswerFallback({
+          channel,
+          chatId,
+          scope,
+          state: finalAnswerOnlyState(finalState.state),
+          replyMode,
+          sendOpts,
+          reason: 'card-stream-terminal',
+        });
+      }
     } else if (replyMode === 'markdown') {
       let latestState: RunState = initialState;
       let producerStarted = false;
@@ -1067,7 +1078,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         },
         sendOpts,
       );
-      await awaitRenderAwareStream({
+      const finalState = await awaitRenderAwareStream({
         mode: replyMode,
         streamDone,
         renderDone,
@@ -1079,6 +1090,17 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           }
         },
       });
+      if (finalState.fallbackUsed) {
+        await sendFinalAnswerFallback({
+          channel,
+          chatId,
+          scope,
+          state: finalAnswerOnlyState(finalState.state),
+          replyMode,
+          sendOpts,
+          reason: 'markdown-stream-terminal',
+        });
+      }
     } else {
       // text mode: drain the agent stream without sending anything during
       // the run, then post the final rendered text once as a plain markdown
@@ -1106,6 +1128,44 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   } finally {
     activePolicyFingerprints.delete(scope);
     scheduleWorkingReactionCleanup(channel, lastMsg.messageId, reactionPromise);
+  }
+}
+
+export async function sendFinalAnswerFallback(input: {
+  channel: Pick<LarkChannel, 'send'>;
+  chatId: string;
+  scope: string;
+  state: RunState;
+  replyMode: ReturnType<typeof getMessageReplyMode>;
+  sendOpts: { replyTo: string; replyInThread?: boolean };
+  reason: string;
+}): Promise<void> {
+  const body = renderText(finalAnswerOnlyState(input.state)).trim();
+  if (!body) {
+    log.warn('outbound', 'final-fallback-empty', {
+      scope: input.scope,
+      mode: input.replyMode,
+      reason: input.reason,
+    });
+    return;
+  }
+
+  try {
+    const result = await input.channel.send(
+      input.chatId,
+      { markdown: body },
+      input.sendOpts,
+    );
+    log.info('outbound', 'final-fallback-sent', {
+      ...outboundLogFields(input, 'markdown-final-fallback', body, result),
+      reason: input.reason,
+    });
+  } catch (err) {
+    log.fail('outbound', err, {
+      step: 'finalAnswerFallback',
+      scope: input.scope,
+      reason: input.reason,
+    });
   }
 }
 
@@ -1334,13 +1394,13 @@ async function processAgentStream(
   return state;
 }
 
-async function awaitRenderAwareStream(input: {
+export async function awaitRenderAwareStream(input: {
   mode: 'card' | 'markdown';
   streamDone: Promise<unknown>;
   renderDone: Promise<RunState>;
   producerStarted: () => boolean;
   fallback: (state: RunState) => Promise<void>;
-}): Promise<void> {
+}): Promise<{ state: RunState; fallbackUsed: boolean }> {
   const streamResult = input.streamDone.then(
     () => ({ kind: 'stream' as const, ok: true as const }),
     (err) => ({ kind: 'stream' as const, ok: false as const, err }),
@@ -1356,7 +1416,7 @@ async function awaitRenderAwareStream(input: {
       const rendered = await renderResult;
       if (!rendered.ok) throw rendered.err;
       await runFallbackReply(input.mode, rendered.state, input.fallback);
-      return;
+      return { state: rendered.state, fallbackUsed: true };
     }
     throw first.err;
   }
@@ -1364,13 +1424,13 @@ async function awaitRenderAwareStream(input: {
   if (first.kind === 'stream') {
     const rendered = await renderResult;
     if (!rendered.ok) throw rendered.err;
-    return;
+    return { state: rendered.state, fallbackUsed: false };
   }
 
   if (!input.producerStarted()) {
     log.warn('stream', 'producer-not-started-before-agent-terminal', { mode: input.mode });
     await runFallbackReply(input.mode, first.state, input.fallback);
-    return;
+    return { state: first.state, fallbackUsed: true };
   }
 
   const terminal = await Promise.race([
@@ -1387,9 +1447,10 @@ async function awaitRenderAwareStream(input: {
         log.fail('stream', result.err, { mode: input.mode, step: 'stream-terminal-late' });
       }
     });
-    return;
+    return { state: first.state, fallbackUsed: true };
   }
   if (!terminal.ok) throw terminal.err;
+  return { state: first.state, fallbackUsed: false };
 }
 
 async function runFallbackReply(
