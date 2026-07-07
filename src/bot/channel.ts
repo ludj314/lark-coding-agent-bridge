@@ -27,6 +27,7 @@ import {
   type RunState,
 } from '../card/run-state';
 import { renderText } from '../card/text-renderer';
+import { ProgressSegmenter, type ProgressSegment } from '../card/progress-segments';
 import { tryHandleCommand, type Controls } from '../commands';
 import type { AppConfig } from '../config/schema';
 import {
@@ -1051,9 +1052,8 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         });
       }
     } else if (replyMode === 'markdown') {
-      let latestState: RunState = initialState;
-      let producerStarted = false;
-      let markdownCtrl: { setContent(markdown: string): Promise<void> } | undefined;
+      const segmenter = new ProgressSegmenter();
+      const handles = new Map<number, ProgressCardHandle>();
       const renderDone = processAgentStream(
         handle,
         eventStream,
@@ -1061,45 +1061,41 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         idleTimeoutMs,
         recordSession,
         async (state) => {
-          latestState = state;
-          if (markdownCtrl) {
-            await markdownCtrl.setContent(renderText(filterForPrefs(state)));
-          }
+          const segment = segmenter.update(filterForPrefs(state));
+          if (!segment) return;
+          await upsertProgressCard({
+            channel,
+            chatId,
+            sendOpts,
+            handles,
+            segmenter,
+            segment,
+            scope,
+          });
         },
       );
-      const streamDone = channel.stream(
-        chatId,
-        {
-          markdown: async (ctrl) => {
-            producerStarted = true;
-            markdownCtrl = ctrl;
-            await ctrl.setContent(renderText(filterForPrefs(latestState)));
-            await renderDone;
-          },
-        },
-        sendOpts,
-      );
-      const finalState = await awaitRenderAwareStream({
-        mode: replyMode,
-        streamDone,
-        renderDone,
-        producerStarted: () => producerStarted,
-        fallback: async (state) => {
-          const body = renderText(filterForPrefs(state));
-          if (body.trim()) {
-            await channel.send(chatId, { markdown: body }, sendOpts);
-          }
-        },
-      });
-      if (finalState.fallbackUsed || finalState.finalNotificationNeeded) {
+      const finalState = await renderDone;
+      const terminal = segmenter.terminal(filterForPrefs(finalState));
+      if (terminal) {
+        await upsertProgressCard({
+          channel,
+          chatId,
+          sendOpts,
+          handles,
+          segmenter,
+          segment: terminal,
+          scope,
+        });
+      }
+      if (finalState.terminal !== 'done' || shouldSendLongRunFinalNotification(finalState)) {
         await sendFinalAnswerFallback({
           channel,
           chatId,
           scope,
-          state: finalAnswerOnlyState(finalState.state),
+          state: finalAnswerOnlyState(finalState),
           replyMode,
           sendOpts,
-          reason: finalState.fallbackUsed ? 'markdown-stream-terminal' : 'markdown-stream-complete',
+          reason: finalState.terminal === 'done' ? 'markdown-stream-complete' : 'markdown-stream-terminal',
         });
       }
     } else {
@@ -1172,6 +1168,59 @@ export async function sendFinalAnswerFallback(input: {
       reason: input.reason,
     });
   }
+}
+
+interface ProgressCardHandle {
+  messageId: string;
+  content: string;
+}
+
+async function upsertProgressCard(input: {
+  channel: LarkChannel;
+  chatId: string;
+  sendOpts: { replyTo: string; replyInThread?: boolean };
+  handles: Map<number, ProgressCardHandle>;
+  segmenter: ProgressSegmenter;
+  segment: ProgressSegment;
+  scope: string;
+}): Promise<void> {
+  const existing = input.handles.get(input.segment.index);
+  if (!existing) {
+    const result = await input.channel.send(
+      input.chatId,
+      { card: progressSegmentCard(input.segment) },
+      input.sendOpts,
+    );
+    input.handles.set(input.segment.index, {
+      messageId: result.messageId ?? '',
+      content: input.segment.content,
+    });
+    input.segmenter.markSent(input.segment);
+    return;
+  }
+
+  if (existing.content === input.segment.content) return;
+  try {
+    await input.channel.updateCard(existing.messageId, progressSegmentCard(input.segment));
+    existing.content = input.segment.content;
+  } catch (err) {
+    log.warn('stream', 'progress-update-failed', {
+      scope: input.scope,
+      segment: input.segment.index,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function progressSegmentCard(segment: ProgressSegment): object {
+  return {
+    schema: '2.0',
+    config: {
+      streaming_mode: false,
+      summary: { content: segment.terminal ? '已完成' : `进展更新 #${segment.index}` },
+    },
+    body: { elements: [{ tag: 'markdown', content: segment.content }] },
+  };
 }
 
 async function sendFinalReply(input: {

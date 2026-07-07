@@ -61,6 +61,33 @@ describe('Bridge command contracts', () => {
     await expect(realpath(h.tmp.workspace)).resolves.toBe(h.workspaces.cwdFor('chat-1'));
   });
 
+  it('sets topic chat default cwd with /cd --chat without changing topic-specific /cd semantics', async () => {
+    const h = await createHarness();
+    const topicDefault = join(h.tmp.root, 'topic-default');
+    const topicSpecific = join(h.tmp.root, 'topic-specific');
+    await mkdir(topicDefault, { recursive: true });
+    await mkdir(topicSpecific, { recursive: true });
+
+    await expect(h.run(`/cd --chat ${topicDefault}`, {
+      chatId: 'topic-chat',
+      scope: 'topic-chat:thread-1',
+      chatMode: 'topic',
+    })).resolves.toBe(true);
+
+    expect(lastMarkdown(h.channel)).toContain('已设置本群新话题默认 cwd');
+    await expect(realpath(topicDefault)).resolves.toBe(h.workspaces.cwdFor('topic-chat'));
+    expect(h.workspaces.cwdFor('topic-chat:thread-1')).toBeUndefined();
+
+    await expect(h.run(`/cd ${topicSpecific}`, {
+      chatId: 'topic-chat',
+      scope: 'topic-chat:thread-1',
+      chatMode: 'topic',
+    })).resolves.toBe(true);
+
+    await expect(realpath(topicSpecific)).resolves.toBe(h.workspaces.cwdFor('topic-chat:thread-1'));
+    await expect(realpath(topicDefault)).resolves.toBe(h.workspaces.cwdFor('topic-chat'));
+  });
+
   it('scopes named workspaces by profile, scope, and owner', async () => {
     const h = await createHarness();
     const alternate = join(h.tmp.root, 'alternate');

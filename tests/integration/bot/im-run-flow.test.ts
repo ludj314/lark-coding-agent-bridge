@@ -76,6 +76,58 @@ describe('IM run flow', () => {
     });
   });
 
+  it('uses chat-level cwd for topic scopes without an explicit topic binding', async () => {
+    const h = await createHarness();
+    const workspaceRealpath = await realpath(h.tmp.workspace);
+    h.workspaces.setCwd('topic-chat', h.tmp.workspace);
+
+    const result = await startRunFlow({
+      scopeId: 'topic-chat:thread-new',
+      scope: { source: 'im', chatId: 'topic-chat', threadId: 'thread-new', actorId: 'ou_user' },
+      prompt: 'hello',
+      attachments: [],
+      access: { ok: true, reason: 'allowed-user' },
+      capability: claudeCapability(h.profileConfig),
+      profileConfig: h.profileConfig,
+      sessions: h.sessions,
+      workspaces: h.workspaces,
+      executor: h.executor,
+      now: 1000,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected run flow to start');
+    expect(result.cwdRealpath).toBe(workspaceRealpath);
+    expect(h.agent.runOptions[0]?.cwd).toBe(workspaceRealpath);
+  });
+
+  it('uses explicit topic cwd before chat-level cwd', async () => {
+    const h = await createHarness();
+    const alternate = join(h.tmp.root, 'topic-specific');
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(alternate, { recursive: true }));
+    const alternateRealpath = await realpath(alternate);
+    h.workspaces.setCwd('topic-chat', h.tmp.workspace);
+    h.workspaces.setCwd('topic-chat:thread-new', alternate);
+
+    const result = await startRunFlow({
+      scopeId: 'topic-chat:thread-new',
+      scope: { source: 'im', chatId: 'topic-chat', threadId: 'thread-new', actorId: 'ou_user' },
+      prompt: 'hello',
+      attachments: [],
+      access: { ok: true, reason: 'allowed-user' },
+      capability: claudeCapability(h.profileConfig),
+      profileConfig: h.profileConfig,
+      sessions: h.sessions,
+      workspaces: h.workspaces,
+      executor: h.executor,
+      now: 1000,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected run flow to start');
+    expect(result.cwdRealpath).toBe(alternateRealpath);
+  });
+
   it('uses the profile default workspace when a scope has no explicit binding', async () => {
     const h = await createHarness({ defaultWorkspace: true });
     const workspaceRealpath = await realpath(h.tmp.workspace);

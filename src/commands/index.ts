@@ -371,9 +371,11 @@ async function handleNewChat(rawName: string, ctx: CommandContext): Promise<void
 }
 
 async function handleCd(args: string, ctx: CommandContext): Promise<void> {
-  const input = args.trim();
+  const raw = args.trim();
+  const chatDefault = raw === '--chat' || raw.startsWith('--chat ');
+  const input = chatDefault ? raw.slice('--chat'.length).trim() : raw;
   if (!input) {
-    await reply(ctx, '用法：`/cd <绝对路径>` 或 `/cd ~/xxx`');
+    await reply(ctx, '用法：`/cd <绝对路径>`、`/cd ~/xxx`，或话题群默认目录：`/cd --chat <绝对路径>`');
     return;
   }
   if (!isAbsoluteOrTilde(input)) {
@@ -387,6 +389,19 @@ async function handleCd(args: string, ctx: CommandContext): Promise<void> {
     return;
   }
   ctx.activeRuns.interrupt(ctx.scope);
+  if (chatDefault) {
+    if (ctx.chatMode !== 'topic') {
+      await reply(ctx, '`/cd --chat` 只用于话题群；普通会话请直接使用 `/cd <目录>`。');
+      return;
+    }
+    ctx.workspaces.setCwd(ctx.msg.chatId, workspace.cwdRealpath);
+    ctx.sessions.clear(ctx.scope);
+    await reply(
+      ctx,
+      `✓ 已设置本群新话题默认 cwd 到 \`${workspace.cwdRealpath}\`\n当前话题未单独设置 cwd 时会继承该目录。`,
+    );
+    return;
+  }
   ctx.workspaces.setCwd(ctx.scope, workspace.cwdRealpath);
   ctx.sessions.clear(ctx.scope);
   await reply(ctx, `✓ 已切换 cwd 到 \`${workspace.cwdRealpath}\`\n（session 已重置）`);
@@ -741,7 +756,11 @@ async function listCodexResumeHistory(
 }
 
 function effectiveWorkspaceCwd(ctx: CommandContext): string | undefined {
-  return ctx.workspaces.cwdFor(ctx.scope) ?? ctx.controls.profileConfig.workspaces.default;
+  return (
+    ctx.workspaces.cwdFor(ctx.scope) ??
+    (ctx.chatMode === 'topic' ? ctx.workspaces.cwdFor(ctx.msg.chatId) : undefined) ??
+    ctx.controls.profileConfig.workspaces.default
+  );
 }
 
 function selectedResumeCwd(ctx: CommandContext): string | undefined {
