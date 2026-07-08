@@ -45,7 +45,7 @@ describe('signed card callback dispatch', () => {
     expect(deniedRun.stopped).toBe(false);
   });
 
-  it('forwards signed bridge callbacks without leaking auth fields into the agent payload', async () => {
+  it('forwards signed bridge callbacks and updates the clicked card to selected state', async () => {
     const h = await createHarness();
     const activeRun = h.agent.run({ runId: 'run-active', prompt: 'running' });
     h.activeRuns.register('oc_group', activeRun);
@@ -55,14 +55,18 @@ describe('signed card callback dispatch', () => {
         __bridge_cb: true,
         bridge_token: h.token('agent_callback', { nonce: 'nonce-agent' }),
         choice: 'a',
+        label: '方案 A',
       },
       { note: 'from form' },
     );
 
     const queued = h.pending.cancel('oc_group');
     expect(queued).toHaveLength(1);
-    expect(queued[0]?.content).toBe('[card-click] {"choice":"a","form_value":{"note":"from form"}}');
+    expect(queued[0]?.content).toBe('[card-click] {"choice":"a","label":"方案 A","form_value":{"note":"from form"}}');
     expect(queued[0]?.chatType).toBe('group');
+    const update = h.channel.rawClient.requests.find((request) => request.method === 'im.v1.message.patch');
+    expect(JSON.stringify(update?.params)).toContain('已选择：方案 A');
+    expect(JSON.stringify(update?.params)).not.toContain('__bridge_cb');
   });
 
   it('drops legacy Claude callback markers before command dispatch', async () => {

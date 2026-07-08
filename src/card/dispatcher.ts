@@ -5,6 +5,7 @@ import type { ChatModeCache } from '../bot/chat-mode-cache';
 import type { PendingQueue } from '../bot/pending-queue';
 import type { ProcessPool } from '../bot/process-pool';
 import type { CallbackAuth } from './callback-auth';
+import { selectedChoiceCard } from './choice-card';
 import { runCommandHandler, type CommandContext, type Controls } from '../commands';
 import { log } from '../core/logger';
 import { canUseDm, canUseGroup } from '../policy/access';
@@ -135,6 +136,7 @@ export async function handleCardAction(deps: CardDispatchDeps): Promise<void> {
   if (BRIDGE_CALLBACK_MARKER in payload) {
     if (!verifyBridgeToken(deps, payload, scope, 'agent_callback')) return;
     forwardToAgent(deps, payload, formValue, scope, threadId, mode);
+    await updateClickedChoiceCard(deps, payload);
     return;
   }
 
@@ -195,6 +197,28 @@ function forwardToAgent(
     createTime: Date.now(),
   };
   deps.pending.push(scope, synthetic);
+}
+
+async function updateClickedChoiceCard(
+  deps: CardDispatchDeps,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const label = typeof payload.label === 'string'
+    ? payload.label
+    : typeof payload.choice === 'string'
+      ? payload.choice
+      : '';
+  if (!label) return;
+  try {
+    await deps.channel.updateCard(
+      deps.evt.messageId,
+      selectedChoiceCard({ title: '请选择', selectedLabel: label }),
+    );
+  } catch (err) {
+    log.warn('cardAction', 'selected-card-update-failed', {
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function verifyBridgeToken(

@@ -17,6 +17,7 @@ import type { AgentAdapter, AgentEvent } from '../agent/types';
 import { handleCardAction } from '../card/dispatcher';
 import { CallbackAuth } from '../card/callback-auth';
 import { CallbackNonceStore } from '../card/callback-store';
+import { choiceIpcSocketPath, startChoiceIpcServer } from '../card/choice-ipc';
 import { renderCard } from '../card/run-renderer';
 import {
   finalizeIfRunning,
@@ -177,7 +178,7 @@ export interface StartChannelDeps {
   sessionCatalog?: SessionCatalog;
   workspaces: WorkspaceStore;
   controls: Controls;
-  appPaths?: Pick<AppPaths, 'secretsFile' | 'keystoreSaltFile' | 'mediaDir'>;
+  appPaths?: Pick<AppPaths, 'profileDir' | 'secretsFile' | 'keystoreSaltFile' | 'mediaDir'>;
 }
 
 export async function startChannel(deps: StartChannelDeps): Promise<BridgeChannel> {
@@ -269,6 +270,20 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
   };
 
   const channel = createLarkChannel(opts);
+  const choiceIpcServer = deps.appPaths
+    ? await startChoiceIpcServer({
+        socketPath: choiceIpcSocketPath(deps.appPaths.profileDir),
+        channel,
+        activeRuns,
+        callbackAuth,
+        policyFingerprintForScope: (scope) => activePolicyFingerprints.get(scope),
+      }).catch((err) => {
+        log.warn('choice-ipc', 'start-failed', {
+          err: err instanceof Error ? err.message : String(err),
+        });
+        return undefined;
+      })
+    : undefined;
   const media = new MediaCache(channel, deps.appPaths?.mediaDir);
 
   // Pending → run handoff: while a run is active on a chat, block its pending
@@ -480,6 +495,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
         sessionCatalog?.flush(),
         callbackNonceStore?.flush(),
         workspaces.flush(),
+        new Promise<void>((resolve) => choiceIpcServer?.close(() => resolve()) ?? resolve()),
       ]);
       if (stopAllResult.status === 'rejected') {
         log.fail('disconnect', stopAllResult.reason, { step: 'stopAll' });

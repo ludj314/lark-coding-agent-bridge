@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import pkg from '../../package.json';
 import { formatAgentPreflightDiagnostic, getAgentPreflightDiagnostic } from '../agent/preflight';
+import { runCardSend } from './commands/card';
 import { runMigrate } from './commands/migrate';
 import { runKillCli, runPs } from './commands/ps';
 import {
@@ -26,6 +27,10 @@ import {
 import { runStart } from './commands/start';
 
 const program = new Command();
+
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
 
 program
   .name('lark-channel-bridge')
@@ -56,6 +61,34 @@ program
     skipCheckLarkCli?: boolean;
   }) => {
     await runStart(opts);
+  });
+
+const card = program
+  .command('card')
+  .description('Send bridge-managed interactive cards from an active agent run');
+
+card
+  .command('send')
+  .description('Send a signed callback choice card through the running bridge process')
+  .option('--profile <name>', 'profile name (defaults to LARK_CHANNEL_PROFILE or claude)')
+  .requiredOption('--chat-id <id>', 'target chat id (oc_xxx)')
+  .requiredOption('--scope <scope>', 'active bridge scope id')
+  .requiredOption('--operator-open-id <id>', 'open_id allowed to click the callback')
+  .requiredOption('--title <title>', 'card title')
+  .option('--choice <key:label>', 'choice key and label; repeat for multiple choices', collect, [])
+  .option('--reply-to <messageId>', 'reply to this message id')
+  .option('--reply-in-thread', 'reply in the topic thread')
+  .action(async (opts: {
+    profile?: string;
+    chatId: string;
+    scope: string;
+    operatorOpenId: string;
+    title: string;
+    choice?: string[];
+    replyTo?: string;
+    replyInThread?: boolean;
+  }) => {
+    await runCardSend(opts);
   });
 
 program
