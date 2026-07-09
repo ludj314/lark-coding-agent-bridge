@@ -178,6 +178,7 @@ const handlers: Record<string, Handler> = {
   '/doc': handleDoc,
   '/invite': handleInvite,
   '/remove': handleRemove,
+  '/disband': handleDisband,
 };
 
 /**
@@ -196,6 +197,7 @@ const ADMIN_COMMANDS = new Set([
   '/ws',
   '/invite',
   '/remove',
+  '/disband',
 ]);
 
 function isAdminCommand(cmd: string): boolean {
@@ -1617,6 +1619,66 @@ async function handleInvite(args: string, ctx: CommandContext): Promise<void> {
   if (added.length > 0) parts.push(`✅ 已把 ${added.join('、')} 加入${label}。`);
   if (already.length > 0) parts.push(`_${already.join('、')} 已经在${label}里，跳过。_`);
   await reply(ctx, parts.join('\n'));
+}
+
+async function handleDisband(args: string, ctx: CommandContext): Promise<void> {
+  const tokens = args.trim().split(/\s+/).filter(Boolean).map((token) => token.toLowerCase());
+  const yes = tokens.includes('--yes');
+  if (ctx.chatMode === 'p2p') {
+    await reply(ctx, '❌ `/disband` 只能在要解散的群里执行。');
+    return;
+  }
+  const chatId = ctx.msg.chatId;
+  if (ctx.activeRuns.scopes().some((scope) => scope === chatId || scope.startsWith(`${chatId}:`))) {
+    await reply(ctx, '❌ 当前群还有运行中的任务，请先 `/stop` 后再执行 `/disband`。');
+    return;
+  }
+  if (!yes) {
+    const workspaceCount = Object.keys(ctx.workspaces.listCwds(chatId)).filter((scope) => scope === chatId || scope.startsWith(`${chatId}:`)).length;
+    const sessionCount = [chatId, `${chatId}:`].reduce((count, prefix, idx) => {
+      if (idx === 0 && ctx.sessions.getRaw(prefix)) return count + 1;
+      return count;
+    }, 0);
+    await reply(
+      ctx,
+      `⚠️ 将解散当前群并清理 bridge 本地配置。\n\n` +
+        `范围：\`${chatId}\` 与 \`${chatId}:*\`\n` +
+        `- workspaces: ${workspaceCount} 条\n` +
+        `- sessions: ${sessionCount} 条（topic 子会话会一并清理）\n\n` +
+        `确认执行请发送：\`/disband --yes\``,
+    );
+    return;
+  }
+
+  await ctx.channel.rawClient.request({
+    method: 'DELETE',
+    url: `/open-apis/im/v1/chats/${chatId}`,
+  });
+  let allowedRemoved = false;
+  await saveAccessConfig(ctx, (current) => {
+    const list = new Set(current.allowedChats);
+    allowedRemoved = list.delete(chatId);
+    return { ...current, allowedChats: [...list] };
+  });
+  const workspacesRemoved = ctx.workspaces.removeCwdPrefix(chatId);
+  const sessionsRemoved = ctx.sessions.clearPrefix(chatId);
+  const catalogRemoved = ctx.sessionCatalog?.removeScopePrefix(chatId) ?? 0;
+  for (const scope of ctx.activeRuns.scopes()) {
+    if (scope === chatId || scope.startsWith(`${chatId}:`)) ctx.activeRuns.interrupt(scope);
+  }
+  await Promise.all([
+    ctx.sessions.flush(),
+    ctx.sessionCatalog?.flush(),
+    ctx.workspaces.flush(),
+  ]);
+  await reply(
+    ctx,
+    `✅ 已解散当前群并清理本地配置。\n` +
+      `- allowedChats: ${allowedRemoved ? 1 : 0}\n` +
+      `- workspaces: ${workspacesRemoved}\n` +
+      `- sessions: ${sessionsRemoved}\n` +
+      `- session catalog: ${catalogRemoved}`,
+  ).catch(() => {});
 }
 
 async function handleRemove(args: string, ctx: CommandContext): Promise<void> {

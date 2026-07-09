@@ -103,6 +103,18 @@ export class SessionStore {
     this.schedulePersist();
   }
 
+  clearPrefix(scopePrefix: string): number {
+    let removed = 0;
+    for (const key of Object.keys(this.data)) {
+      if (key === scopePrefix || key.startsWith(`${scopePrefix}:`)) {
+        delete this.data[key];
+        removed++;
+      }
+    }
+    if (removed > 0) this.schedulePersist();
+    return removed;
+  }
+
   /** Per-scope idle-timeout override. `undefined` means no override set. */
   getIdleTimeoutMinutes(chatId: string): number | undefined {
     return this.data[chatId]?.idleTimeoutMinutes;

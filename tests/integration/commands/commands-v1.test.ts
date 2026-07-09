@@ -326,6 +326,27 @@ describe('Bridge command contracts', () => {
     expect(root?.profiles.claude?.access.allowedUsers).not.toContain('ou-alice');
   });
 
+  it('previews /disband and executes current-chat disband with local cleanup', async () => {
+    const h = await createHarness();
+    h.controls.profileConfig.access.allowedChats = ['chat-1'];
+    h.workspaces.setCwd('chat-1', h.tmp.workspace);
+    h.workspaces.setCwd('chat-1:thread-a', h.tmp.workspace);
+    h.sessions.set('chat-1', 'sess-chat', h.tmp.workspace);
+    h.sessions.set('chat-1:thread-a', 'sess-topic', h.tmp.workspace);
+
+    await expect(h.run('/disband', { chatMode: 'group' })).resolves.toBe(true);
+    expect(lastMarkdown(h.channel)).toContain('/disband --yes');
+    expect(h.channel.rawClient.requests.some((request) => JSON.stringify(request.method).includes('/open-apis/im/v1/chats/chat-1'))).toBe(false);
+
+    await expect(h.run('/disband --yes', { chatMode: 'group' })).resolves.toBe(true);
+
+    expect(h.channel.rawClient.requests.some((request) => JSON.stringify(request.method).includes('/open-apis/im/v1/chats/chat-1'))).toBe(true);
+    expect(h.workspaces.cwdFor('chat-1')).toBeUndefined();
+    expect(h.workspaces.cwdFor('chat-1:thread-a')).toBeUndefined();
+    expect(h.sessions.getRaw('chat-1')).toBeUndefined();
+    expect(h.sessions.getRaw('chat-1:thread-a')).toBeUndefined();
+  });
+
   it('adds every known bot group through /invite all group', async () => {
     const h = await createHarness();
     h.controls.knownChats = [

@@ -47,6 +47,18 @@ export class WorkspaceStore {
     return true;
   }
 
+  removeCwdPrefix(scopePrefix: string): number {
+    let removed = 0;
+    for (const key of Object.keys(this.data.chats)) {
+      if (key === scopePrefix || key.startsWith(`${scopePrefix}:`)) {
+        delete this.data.chats[key];
+        removed++;
+      }
+    }
+    if (removed > 0) this.schedulePersist();
+    return removed;
+  }
+
   listCwds(prefix?: string): Record<string, string> {
     const out: Record<string, string> = {};
     for (const [key, value] of Object.entries(this.data.chats)) {
