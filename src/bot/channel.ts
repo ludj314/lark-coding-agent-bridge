@@ -1186,12 +1186,12 @@ export async function sendFinalAnswerFallback(input: {
   }
 }
 
-interface ProgressCardHandle {
+export interface ProgressCardHandle {
   messageId: string;
   content: string;
 }
 
-async function upsertProgressCard(input: {
+export async function upsertProgressCard(input: {
   channel: LarkChannel;
   chatId: string;
   sendOpts: { replyTo: string; replyInThread?: boolean };
@@ -1202,16 +1202,24 @@ async function upsertProgressCard(input: {
 }): Promise<void> {
   const existing = input.handles.get(input.segment.index);
   if (!existing) {
-    const result = await input.channel.send(
-      input.chatId,
-      { card: progressSegmentCard(input.segment) },
-      input.sendOpts,
-    );
-    input.handles.set(input.segment.index, {
-      messageId: result.messageId ?? '',
-      content: input.segment.content,
-    });
-    input.segmenter.markSent(input.segment);
+    try {
+      const result = await input.channel.send(
+        input.chatId,
+        { card: progressSegmentCard(input.segment) },
+        input.sendOpts,
+      );
+      input.handles.set(input.segment.index, {
+        messageId: result.messageId ?? '',
+        content: input.segment.content,
+      });
+      input.segmenter.markSent(input.segment);
+    } catch (err) {
+      log.warn('stream', 'progress-send-failed', {
+        scope: input.scope,
+        segment: input.segment.index,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
     return;
   }
 
