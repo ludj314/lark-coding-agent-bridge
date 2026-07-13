@@ -81,7 +81,29 @@ describe('final answer fallback', () => {
     );
   });
 
-  it('does not send an empty fallback when the agent produced no final text', async () => {
+  it('truncates long final summaries by preserving the tail', async () => {
+    const send = vi.fn().mockResolvedValue({ messageId: 'om_final' });
+    const state = finalState(`${'HEAD-ONLY-'.repeat(140)}\n${'middle-content-'.repeat(140)}\n尾部关键信息：Lark 文档 https://example.test/doc`);
+
+    await sendFinalAnswerFallback({
+      channel: { send } as never,
+      chatId: 'oc_chat',
+      scope: 'oc_chat',
+      state,
+      replyMode: 'markdown',
+      sendOpts: { replyTo: 'om_input' },
+      reason: 'markdown-stream-complete',
+    });
+
+    const markdown = send.mock.calls[0]?.[1]?.markdown as string;
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(markdown.length).toBeLessThanOrEqual(1000);
+    expect(markdown).toContain('最终总结已截断');
+    expect(markdown).toContain('尾部关键信息');
+    expect(markdown).not.toContain('HEAD-ONLY-HEAD-ONLY-HEAD-ONLY-');
+  });
+
+  it('sends a short completion fallback when the agent produced no final text', async () => {
     const send = vi.fn().mockResolvedValue({ messageId: 'om_final' });
     const state: RunState = {
       blocks: [{ kind: 'tool', tool: { id: 'tool-1', name: 'Bash', input: {}, status: 'done' } }],
@@ -100,7 +122,12 @@ describe('final answer fallback', () => {
       reason: 'markdown-stream-terminal',
     });
 
-    expect(send).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      'oc_chat',
+      { markdown: '✅ 已完成，详情请查看前面的进展消息。' },
+      { replyTo: 'om_input' },
+    );
   });
 });
 
