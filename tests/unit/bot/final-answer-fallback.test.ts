@@ -51,7 +51,7 @@ describe('final answer fallback', () => {
     expect(fallback).toHaveBeenCalledWith(state);
   });
 
-  it('sends only the final text block when fallback is requested', async () => {
+  it('sends a short completion notice for successful final fallback', async () => {
     const send = vi.fn().mockResolvedValue({ messageId: 'om_final' });
     const state: RunState = {
       blocks: [
@@ -76,14 +76,18 @@ describe('final answer fallback', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
       'oc_chat',
-      { markdown: '最终结论：任务已完成。' },
+      { markdown: '✅ 已完成，详情请查看前面的进展消息。' },
       { replyTo: 'om_input' },
     );
   });
 
-  it('truncates long final summaries by preserving the tail', async () => {
+  it('truncates long non-success final summaries by preserving the tail', async () => {
     const send = vi.fn().mockResolvedValue({ messageId: 'om_final' });
-    const state = finalState(`${'HEAD-ONLY-'.repeat(140)}\n${'middle-content-'.repeat(140)}\n尾部关键信息：Lark 文档 https://example.test/doc`);
+    const state = {
+      ...finalState(`${'HEAD-ONLY-'.repeat(140)}\n${'middle-content-'.repeat(140)}\n尾部关键信息：Lark 文档 https://example.test/doc`),
+      terminal: 'error' as const,
+      errorMsg: 'failed',
+    };
 
     await sendFinalAnswerFallback({
       channel: { send } as never,
@@ -92,7 +96,7 @@ describe('final answer fallback', () => {
       state,
       replyMode: 'markdown',
       sendOpts: { replyTo: 'om_input' },
-      reason: 'markdown-stream-complete',
+      reason: 'markdown-stream-terminal',
     });
 
     const markdown = send.mock.calls[0]?.[1]?.markdown as string;

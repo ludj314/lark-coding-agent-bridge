@@ -1163,13 +1163,15 @@ export async function sendFinalAnswerFallback(input: {
   sendOpts: { replyTo: string; replyInThread?: boolean };
   reason: string;
 }): Promise<void> {
-  const body = formatFinalSummary(
-    renderText({
-      ...finalAnswerOnlyState(input.state),
-      terminal: 'running',
-      footer: null,
-    }).trim(),
-  );
+  const body = input.state.terminal === 'done'
+    ? EMPTY_FINAL_SUMMARY
+    : formatFinalSummary(
+        renderText({
+          ...finalAnswerOnlyState(input.state),
+          terminal: 'running',
+          footer: null,
+        }).trim(),
+      );
   if (!body) {
     log.warn('outbound', 'final-fallback-empty', {
       scope: input.scope,

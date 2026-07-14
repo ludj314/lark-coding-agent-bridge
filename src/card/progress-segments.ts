@@ -1,9 +1,8 @@
-import type { RunState } from './run-state';
-import { renderText } from './text-renderer';
+import type { RunState, ToolEntry } from './run-state';
 
 export const PROGRESS_SEGMENT_MAX_CHARS = 10_000;
 export const PROGRESS_SEGMENT_MIN_INTERVAL_MS = 120_000;
-const HEADER_RESERVE = 80;
+const RECENT_TOOL_LIMIT = 5;
 
 export interface ProgressSegment {
   index: number;
@@ -13,80 +12,72 @@ export interface ProgressSegment {
 
 export class ProgressSegmenter {
   private readonly maxChars: number;
-  private readonly minIntervalMs: number;
-  private readonly now: () => number;
-  private emittedChars = 0;
   private activeIndex = 1;
-  private lastSentAt = 0;
-  private activeStart = 0;
-  private activeContent = '';
-  private activeFull = false;
+  private lastContent = '';
 
   constructor(opts: { maxChars?: number; minIntervalMs?: number; now?: () => number } = {}) {
     this.maxChars = opts.maxChars ?? PROGRESS_SEGMENT_MAX_CHARS;
-    this.minIntervalMs = opts.minIntervalMs ?? PROGRESS_SEGMENT_MIN_INTERVAL_MS;
-    this.now = opts.now ?? Date.now;
+    void opts.minIntervalMs;
+    void opts.now;
   }
 
   update(state: RunState): ProgressSegment | undefined {
-    const full = renderText({ ...state, terminal: 'running', footer: null }).trim();
-    const currentActive = full.slice(this.activeStart, this.emittedChars);
-    if (!this.activeFull && currentActive && currentActive !== this.activeContent) {
-      this.activeContent = currentActive.slice(0, this.activeContent.length);
-      return this.segment(state, false);
-    }
-    const delta = full.slice(this.emittedChars);
-    if (!delta) return undefined;
-
-    if (this.activeFull) {
-      if (this.now() - this.lastSentAt < this.minIntervalMs) return undefined;
-      this.activeIndex += 1;
-      this.activeStart = this.emittedChars;
-      this.activeContent = '';
-      this.activeFull = false;
-    }
-
-    const header = this.header(state, false);
-    const bodyBudget = Math.max(0, this.maxChars - header.length - HEADER_RESERVE);
-    const available = Math.max(0, bodyBudget - this.activeContent.length);
-    if (available <= 0) {
-      this.activeFull = true;
-      return undefined;
-    }
-
-    const chunk = delta.slice(0, available);
-    this.activeContent += chunk;
-    this.emittedChars += chunk.length;
-    if (chunk.length < delta.length || this.activeContent.length >= bodyBudget) {
-      // This segment is full. Drop the overflow from this full-state render;
-      // future segments should contain only content produced after this cutoff,
-      // not the remainder of an already-truncated oversized update.
-      this.emittedChars = full.length;
-      this.activeFull = true;
-    }
-
-    return this.segment(state, false);
+    const content = renderProgressSummary(state, this.activeIndex, false).slice(0, this.maxChars);
+    if (content === this.lastContent) return undefined;
+    this.lastContent = content;
+    return { index: this.activeIndex, content, terminal: false };
   }
 
   markSent(_segment: ProgressSegment): void {
-    this.lastSentAt = this.now();
+    // Kept for compatibility with the caller; compact summaries update the same
+    // segment and no longer emit additional history segments.
   }
 
   terminal(state: RunState): ProgressSegment | undefined {
-    if (!this.activeContent && this.emittedChars === 0) return undefined;
-    return this.segment(state, true);
+    const content = renderProgressSummary(state, this.activeIndex, true).slice(0, this.maxChars);
+    this.lastContent = content;
+    return { index: this.activeIndex, content, terminal: true };
   }
+}
 
-  private segment(state: RunState, terminal: boolean): ProgressSegment {
-    const content = `${this.header(state, terminal)}\n\n${this.activeContent}`.slice(0, this.maxChars);
-    return { index: this.activeIndex, content, terminal };
+function renderProgressSummary(state: RunState, index: number, terminal: boolean): string {
+  const tools = state.blocks.flatMap((block) => (block.kind === 'tool' ? [block.tool] : []));
+  const done = tools.filter((tool) => tool.status === 'done').length;
+  const running = tools.filter((tool) => tool.status === 'running').length;
+  const failed = tools.filter((tool) => tool.status === 'error').length;
+  const status = terminal ? terminalStatus(state) : runningStatus(state);
+  const elapsed = state.durationMs !== undefined ? `\n已用时：${formatDuration(state.durationMs)}` : '';
+  const lines = [
+    `进展更新 #${index}`,
+    `状态：${status}${elapsed}`,
+    '',
+    '工具概览：',
+    `- 已完成：${done}`,
+    `- 进行中：${running}`,
+    `- 失败：${failed}`,
+  ];
+  const recent = tools.slice(-RECENT_TOOL_LIMIT);
+  if (recent.length > 0) {
+    lines.push('', '最近动作:', ...recent.map(renderToolLine));
   }
+  return lines.join('\n');
+}
 
-  private header(state: RunState, terminal: boolean): string {
-    const status = terminal ? terminalStatus(state) : runningStatus(state);
-    const elapsed = state.durationMs !== undefined ? `\n已用时：${formatDuration(state.durationMs)}` : '';
-    return `进展更新 #${this.activeIndex}\n状态：${status}${elapsed}`;
-  }
+function renderToolLine(tool: ToolEntry): string {
+  const icon = tool.status === 'done' ? '✅' : tool.status === 'error' ? '❌' : '⏳';
+  return `- ${icon} **${tool.name}**${toolTarget(tool)}`;
+}
+
+function toolTarget(tool: ToolEntry): string {
+  if (typeof tool.input !== 'object' || tool.input === null) return '';
+  const input = tool.input as Record<string, unknown>;
+  const value = input.file_path ?? input.command ?? input.path;
+  return typeof value === 'string' && value ? ` — ${truncateOneLine(value, 80)}` : '';
+}
+
+function truncateOneLine(value: string, max: number): string {
+  const oneLine = value.replace(/\s+/g, ' ').trim();
+  return oneLine.length <= max ? oneLine : `${oneLine.slice(0, max - 1)}…`;
 }
 
 function runningStatus(state: RunState): string {
