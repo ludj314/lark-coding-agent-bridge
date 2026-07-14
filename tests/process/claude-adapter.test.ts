@@ -55,6 +55,8 @@ describe('ClaudeAdapter process contract', () => {
       'acceptEdits',
       '--append-system-prompt-file',
     ]);
+    expect(record.argv).toContain('--add-dir');
+    expect(record.argv[record.argv.indexOf('--add-dir') + 1]).toBe(fake.dir);
     expect(record.argv).not.toContain('hello');
     expect(record.systemPrompt).toContain('lark-channel-bridge 运行约定');
     expect(record.systemPrompt).toContain('__bridge_cb');

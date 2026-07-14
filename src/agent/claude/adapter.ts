@@ -79,6 +79,12 @@ export class ClaudeAdapter implements AgentAdapter {
       opts.permissionMode ?? CLAUDE_DEFAULT_PERMISSION_MODE,
       '--append-system-prompt-file',
       systemPromptFile.path,
+      // Claude Code discovers project memory from its allowed project dirs.
+      // Passing the run cwd explicitly keeps non-interactive bridge sessions
+      // aligned with `/cd --chat`, including topic starters where the event
+      // itself may not have a topic-specific cwd yet.
+      '--add-dir',
+      opts.cwd,
     ];
     if (opts.sessionId) args.push('--resume', opts.sessionId);
     if (opts.model) args.push('--model', opts.model);
