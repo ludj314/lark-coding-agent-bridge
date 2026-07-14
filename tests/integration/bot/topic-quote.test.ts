@@ -111,8 +111,8 @@ describe('topic message quote handling', () => {
     expect(prompt).toContain('"threadId":"omt_converted_topic"');
     expect(prompt).not.toContain('<quoted_messages>');
     expect(h.channel.fetchRawMessage).not.toHaveBeenCalled();
-    await waitFor(() => h.channel.streams.length === 1);
-    expect(h.channel.streams[0]?.options).toMatchObject({
+    await waitFor(() => h.channel.sent.length === 1);
+    expect(h.channel.sent[0]?.options).toMatchObject({
       replyTo: 'om_converted_topic',
       replyInThread: true,
     });
@@ -145,8 +145,8 @@ describe('topic message quote handling', () => {
     const prompt = h.agent.runOptions[0]?.prompt ?? '';
     expect(prompt).toContain('"threadId":"omt_backfilled"');
 
-    await waitFor(() => h.channel.streams.length === 1);
-    expect(h.channel.streams[0]?.options).toMatchObject({
+    await waitFor(() => h.channel.sent.length === 1);
+    expect(h.channel.sent[0]?.options).toMatchObject({
       replyTo: 'om_topic_start',
       replyInThread: true,
     });
@@ -170,8 +170,8 @@ describe('topic message quote handling', () => {
     await waitFor(() => h.agent.runOptions.length === 1);
 
     expect(h.channel.fetchRawMessage).toHaveBeenCalledWith('om_no_thread');
-    await waitFor(() => h.channel.streams.length === 1);
-    expect(h.channel.streams[0]?.options).not.toMatchObject({ replyInThread: true });
+    await waitFor(() => h.channel.sent.length === 1);
+    expect(h.channel.sent[0]?.options).not.toMatchObject({ replyInThread: true });
   });
 
   it('keeps regular group reply quotes as quoted context', async () => {
@@ -272,7 +272,10 @@ async function createHarness(options: {
   const sessions = new SessionStore(join(tmp.profile, 'sessions.json'));
   const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));
   const agent = new FakeAgentAdapter({
-    events: [{ type: 'done', terminationReason: 'normal' }],
+    events: [
+      { type: 'text', delta: 'ok' },
+      { type: 'done', terminationReason: 'normal' },
+    ],
   });
   const channel = createFakeLarkChannel(options);
   sdkMock.channel = channel;

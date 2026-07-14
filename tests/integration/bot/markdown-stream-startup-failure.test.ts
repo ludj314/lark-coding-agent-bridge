@@ -117,45 +117,20 @@ describe('markdown stream startup failures', () => {
     await waitFor(() => h.channel.rawClient.im.v1.messageReaction.delete.mock.calls.length > 0);
   });
 
-  it('logs stream failures that arrive after terminal grace expires', async () => {
-    const streamFailure = deferred<void>();
-    let streamProducerStarted = false;
-    const h = await createHarness({
-      stream: async (_chatId, input) => {
-        const producer = (input as {
-          markdown?: (ctrl: { setContent(markdown: string): Promise<void> }) => Promise<void>;
-        }).markdown;
-        if (producer) {
-          streamProducerStarted = true;
-          void producer({ setContent: vi.fn(async () => {}) });
-        }
-        await streamFailure.promise;
-      },
+  it('does not use markdown stream for progress-card mode', async () => {
+    const stream = vi.fn(async () => {
+      throw new Error('markdown stream should not be used');
     });
-    const fail = vi.spyOn(log, 'fail').mockImplementation(() => {});
+    const h = await createHarness({ stream });
     await startTestBridge(h);
 
     await h.channel.handlers.message?.(message('om_first', 'first'));
-    await waitFor(() => streamProducerStarted);
-    await waitFor(
-      () => h.channel.rawClient.im.v1.messageReaction.delete.mock.calls.length > 0,
-      4500,
-    );
+    await waitFor(() => h.agent.runOptions.length === 1);
 
-    await h.channel.handlers.message?.(message('om_second', 'second'));
-    await waitFor(() => h.agent.runOptions.length === 2);
-
-    streamFailure.reject(new Error('late stream failed'));
-
-    await waitFor(() =>
-      fail.mock.calls.some((call) =>
-        call[0] === 'stream' &&
-        call[1] instanceof Error &&
-        call[1].message === 'late stream failed' &&
-        (call[2] as { step?: string } | undefined)?.step === 'stream-terminal-late',
-      ),
-    );
-  }, 10_000);
+    expect(stream).not.toHaveBeenCalled();
+    expect(lastMarkdown(h.channel)).toContain('agent 失败');
+    expect(lastMarkdown(h.channel)).toContain('codex exited with code 1');
+  });
 });
 
 async function createHarness(options: {

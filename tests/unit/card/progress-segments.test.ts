@@ -54,6 +54,36 @@ describe('ProgressSegmenter', () => {
     expect(updated?.content).not.toContain('⏳ **Bash**');
   });
 
+  it('renders latest three tool commands on top and plain progress text below', () => {
+    const segmenter = new ProgressSegmenter({ maxChars: 1000, minIntervalMs: 120_000, now: () => 0 });
+    const state: RunState = {
+      blocks: [
+        { kind: 'tool', tool: { id: 'tool-1', name: 'Read', input: { file_path: '/repo/a.ts' }, status: 'done' } },
+        { kind: 'tool', tool: { id: 'tool-2', name: 'Bash', input: { command: 'rg -n "mergeProgressEntries" src/card/run-state.ts' }, status: 'done' } },
+        { kind: 'tool', tool: { id: 'tool-3', name: 'Edit', input: { file_path: '/repo/src/card/progress-segments.ts' }, status: 'done' } },
+        { kind: 'tool', tool: { id: 'tool-4', name: 'Bash', input: { command: 'npx vitest run tests/unit/card/progress-segments.test.ts' }, status: 'running' } },
+        { kind: 'text', content: '我先按根因排查来。', streaming: false },
+        { kind: 'text', content: '继续跑 progress segment 测试，看是否还需调整分段逻辑。', streaming: false },
+      ],
+      reasoning: { content: '', active: false },
+      progress: { entries: ['不应该显示的 thinking 摘要。'] },
+      footer: 'tool_running',
+      terminal: 'running',
+    };
+
+    const segment = segmenter.update(state);
+
+    expect(segment?.content).toContain('当前执行');
+    expect(segment?.content).not.toContain('**Read**');
+    expect(segment?.content).toContain('1. ✅ **Bash** — rg -n');
+    expect(segment?.content).toContain('2. ✅ **Edit** — /repo/src/card/progress-segments.ts');
+    expect(segment?.content).toContain('3. ⏳ **Bash** — npx vitest run tests/unit/card/progress-segments.test.ts');
+    expect(segment?.content).not.toContain('不应该显示的 thinking 摘要。');
+    expect(segment?.content).toContain('我先按根因排查来。');
+    expect(segment?.content).toContain('继续跑 progress segment 测试');
+    expect(segment?.content).not.toContain('> ✅ **Bash**');
+  });
+
   it('terminal update targets the current visible segment and does not emit unsent tail content', () => {
     let now = 0;
     const segmenter = new ProgressSegmenter({ maxChars: 120, minIntervalMs: 120_000, now: () => now });
@@ -72,10 +102,13 @@ describe('ProgressSegmenter', () => {
   });
 });
 
+
+
 function stateWithText(text: string): RunState {
   return {
     blocks: [{ kind: 'text', content: text, streaming: false }],
     reasoning: { content: '', active: false },
+    progress: { entries: [] },
     footer: 'streaming',
     terminal: 'running',
   };
@@ -85,6 +118,7 @@ function stateWithTool(status: 'running' | 'done'): RunState {
   return {
     blocks: [{ kind: 'tool', tool: { id: 'tool-1', name: 'Bash', input: { command: 'pwd' }, status } }],
     reasoning: { content: '', active: false },
+    progress: { entries: [] },
     footer: status === 'running' ? 'tool_running' : null,
     terminal: 'running',
   };

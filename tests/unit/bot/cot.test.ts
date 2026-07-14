@@ -72,6 +72,7 @@ describe('COT event mapping', () => {
         { kind: 'text', content: 'final', streaming: false },
       ],
       reasoning: { content: 'hidden', active: true },
+      progress: { entries: [] },
       footer: 'streaming',
       terminal: 'done',
     };
@@ -79,6 +80,7 @@ describe('COT event mapping', () => {
     expect(finalAnswerOnlyState(state)).toMatchObject({
       blocks: [{ kind: 'text', content: 'final' }],
       reasoning: { content: '', active: false },
+      progress: { entries: [] },
       footer: null,
     });
   });

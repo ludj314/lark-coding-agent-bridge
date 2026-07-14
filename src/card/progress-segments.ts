@@ -1,5 +1,5 @@
-import type { RunState } from './run-state';
-import { renderText } from './text-renderer';
+import type { Block, RunState, ToolEntry } from './run-state';
+import { toolHeaderText } from './tool-render';
 
 export const PROGRESS_SEGMENT_MAX_CHARS = 10_000;
 export const PROGRESS_SEGMENT_MIN_INTERVAL_MS = 120_000;
@@ -29,10 +29,13 @@ export class ProgressSegmenter {
   }
 
   update(state: RunState): ProgressSegment | undefined {
-    const full = renderText({ ...state, terminal: 'running', footer: null }).trim();
+    const full = renderProgressBody(state).trim();
+    const header = this.header(state, false);
+    const bodyBudget = Math.max(0, this.maxChars - header.length - HEADER_RESERVE);
     const currentActive = full.slice(this.activeStart, this.emittedChars);
     if (!this.activeFull && currentActive && currentActive !== this.activeContent) {
-      this.activeContent = currentActive.slice(0, this.activeContent.length);
+      this.activeContent = full.slice(this.activeStart, this.activeStart + bodyBudget);
+      this.emittedChars = this.activeStart + this.activeContent.length;
       return this.segment(state, false);
     }
     const delta = full.slice(this.emittedChars);
@@ -46,8 +49,6 @@ export class ProgressSegmenter {
       this.activeFull = false;
     }
 
-    const header = this.header(state, false);
-    const bodyBudget = Math.max(0, this.maxChars - header.length - HEADER_RESERVE);
     const available = Math.max(0, bodyBudget - this.activeContent.length);
     if (available <= 0) {
       this.activeFull = true;
@@ -87,6 +88,29 @@ export class ProgressSegmenter {
     const elapsed = state.durationMs !== undefined ? `\n已用时：${formatDuration(state.durationMs)}` : '';
     return `进展更新 #${this.activeIndex}\n状态：${status}${elapsed}`;
   }
+}
+
+function renderProgressBody(state: RunState): string {
+  const tools = renderLatestTools(state.blocks);
+  const text = renderTextBlocks(state.blocks);
+  return [tools, text].filter(Boolean).join('\n\n');
+}
+
+function renderLatestTools(blocks: Block[]): string {
+  const latest = blocks
+    .filter((block): block is { kind: 'tool'; tool: ToolEntry } => block.kind === 'tool')
+    .map((block) => block.tool)
+    .slice(-3);
+  if (latest.length === 0) return '';
+  return `**当前执行**\n${latest.map((tool, index) => `${index + 1}. ${toolHeaderText(tool)}`).join('\n')}`;
+}
+
+function renderTextBlocks(blocks: Block[]): string {
+  return blocks
+    .filter((block): block is { kind: 'text'; content: string; streaming: boolean } => block.kind === 'text')
+    .map((block) => block.content.trim())
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function runningStatus(state: RunState): string {

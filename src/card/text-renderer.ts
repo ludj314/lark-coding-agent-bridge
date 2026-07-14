@@ -14,6 +14,10 @@ import { toolHeaderText } from './tool-render';
 export function renderText(state: RunState): string {
   const parts: string[] = [];
 
+  if (state.progress.entries.length > 0) {
+    parts.push(`**当前进度**\n${state.progress.entries.map((entry, index) => `${index + 1}. ${entry}`).join('\n')}`);
+  }
+
   for (const block of state.blocks) {
     const piece = renderBlock(block);
     if (piece) parts.push(piece);

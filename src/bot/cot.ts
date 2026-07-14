@@ -238,6 +238,7 @@ export function finalAnswerOnlyState(state: RunState): RunState {
     ...state,
     blocks: state.blocks.filter((b) => b.kind === 'text'),
     reasoning: { content: '', active: false },
+    progress: { entries: [] },
     footer: null,
   };
 }

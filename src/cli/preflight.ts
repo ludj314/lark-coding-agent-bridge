@@ -62,7 +62,7 @@ async function checkLarkCli(opts: PreFlightOptions): Promise<void> {
   }
   const larkChannelEnv = opts.larkChannel ? buildLarkChannelEnv(opts.larkChannel) : undefined;
   const legacyLarkChannelEnv = opts.larkChannel
-    ? buildLarkChannelEnv({ ...opts.larkChannel, larkCliConfigDir: undefined })
+    ? { ...buildLarkChannelEnv({ ...opts.larkChannel, larkCliConfigDir: undefined }), LARKSUITE_CLI_CONFIG_DIR: undefined }
     : undefined;
   const profileArgs =
     privateBinding || !opts.larkChannel?.profile ? [] : ['--profile', opts.larkChannel.profile];

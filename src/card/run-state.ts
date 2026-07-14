@@ -20,6 +20,7 @@ export type Terminal = 'running' | 'done' | 'interrupted' | 'error' | 'idle_time
 export interface RunState {
   blocks: Block[];
   reasoning: { content: string; active: boolean };
+  progress: { entries: string[] };
   footer: FooterStatus;
   terminal: Terminal;
   errorMsg?: string;
@@ -33,6 +34,7 @@ export interface RunState {
 export const initialState: RunState = {
   blocks: [],
   reasoning: { content: '', active: false },
+  progress: { entries: [] },
   footer: 'thinking',
   terminal: 'running',
 };
@@ -41,6 +43,45 @@ function closeStreamingText(blocks: Block[]): Block[] {
   return blocks.map((b) =>
     b.kind === 'text' && b.streaming ? { ...b, streaming: false } : b,
   );
+}
+
+const PROGRESS_MAX = 3;
+const PROGRESS_ENTRY_MAX = 120;
+
+function mergeProgressEntries(existing: string[], delta: string, opts: { requireCjk?: boolean } = {}): string[] {
+  const next = [...existing];
+  for (const entry of extractProgressEntries(delta, opts)) {
+    if (next[next.length - 1] === entry || next.includes(entry)) continue;
+    next.push(entry);
+  }
+  return next.slice(-PROGRESS_MAX);
+}
+
+function extractProgressEntries(delta: string, opts: { requireCjk?: boolean }): string[] {
+  return delta
+    .split(/\r?\n/)
+    .map((line) => normalizeProgressLine(line, opts))
+    .filter((line): line is string => Boolean(line));
+}
+
+function normalizeProgressLine(line: string, opts: { requireCjk?: boolean }): string | null {
+  const unquoted = line.trim().replace(/^>\s?/, '').trim();
+  if (!unquoted) return null;
+  if (opts.requireCjk && !/[㐀-鿿]/u.test(unquoted)) return null;
+  if (isToolProgressLine(unquoted)) return null;
+  if (looksLikePathOrLog(unquoted)) return null;
+  if (unquoted.length > PROGRESS_ENTRY_MAX) return null;
+  return unquoted;
+}
+
+function isToolProgressLine(line: string): boolean {
+  return /^[✅⏳❌]\s+\*\*[^*]+\*\*/u.test(line);
+}
+
+function looksLikePathOrLog(line: string): boolean {
+  if (/^\/?(?:Users|repo|tmp|var|src|dist|tests?)\//.test(line)) return true;
+  if (/^[A-Za-z]+Error:|^\[[^\]]+\]|^\{.*\}$/.test(line)) return true;
+  return false;
 }
 
 export function reduce(state: RunState, evt: AgentEvent): RunState {
@@ -53,6 +94,7 @@ export function reduce(state: RunState, evt: AgentEvent): RunState {
           ...state,
           blocks: [...state.blocks.slice(0, -1), next],
           reasoning: { ...state.reasoning, active: false },
+          progress: { entries: mergeProgressEntries(state.progress.entries, evt.delta, { requireCjk: true }) },
           footer: 'streaming',
         };
       }
@@ -60,6 +102,7 @@ export function reduce(state: RunState, evt: AgentEvent): RunState {
         ...state,
         blocks: [...state.blocks, { kind: 'text', content: evt.delta, streaming: true }],
         reasoning: { ...state.reasoning, active: false },
+        progress: { entries: mergeProgressEntries(state.progress.entries, evt.delta, { requireCjk: true }) },
         footer: 'streaming',
       };
     }
@@ -67,7 +110,8 @@ export function reduce(state: RunState, evt: AgentEvent): RunState {
     case 'thinking': {
       return {
         ...state,
-        reasoning: { content: state.reasoning.content + evt.delta, active: true },
+        reasoning: { content: '', active: false },
+        progress: { entries: mergeProgressEntries(state.progress.entries, evt.delta) },
         footer: 'thinking',
       };
     }

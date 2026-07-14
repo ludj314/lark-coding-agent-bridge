@@ -33,6 +33,7 @@ function stateWithText(text: string): RunState {
   return {
     blocks: [{ kind: 'text', content: text, streaming: false }],
     reasoning: { content: '', active: false },
+    progress: { entries: [] },
     footer: 'tool_running',
     terminal: 'running',
   };

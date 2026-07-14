@@ -161,35 +161,10 @@ exports[`run card renderer snapshots > renders active and completed thinking 1`]
   "body": {
     "elements": [
       {
-        "border": {
-          "color": "grey",
-          "corner_radius": "5px",
-        },
-        "elements": [
-          {
-            "content": "checking options",
-            "tag": "markdown",
-            "text_size": "notation",
-          },
-        ],
-        "expanded": true,
-        "header": {
-          "icon": {
-            "size": "16px 16px",
-            "tag": "standard_icon",
-            "token": "down-small-ccm_outlined",
-          },
-          "icon_expanded_angle": -180,
-          "icon_position": "follow_text",
-          "title": {
-            "content": "🧠 **思考中**",
-            "tag": "markdown",
-          },
-          "vertical_align": "center",
-        },
-        "padding": "8px 8px 8px 8px",
-        "tag": "collapsible_panel",
-        "vertical_spacing": "8px",
+        "content": "**当前进度**
+1. checking options",
+        "tag": "markdown",
+        "text_size": "notation",
       },
       {
         "content": "🧠 正在思考",
@@ -229,35 +204,10 @@ exports[`run card renderer snapshots > renders active and completed thinking 2`]
   "body": {
     "elements": [
       {
-        "border": {
-          "color": "grey",
-          "corner_radius": "5px",
-        },
-        "elements": [
-          {
-            "content": "checking options",
-            "tag": "markdown",
-            "text_size": "notation",
-          },
-        ],
-        "expanded": false,
-        "header": {
-          "icon": {
-            "size": "16px 16px",
-            "tag": "standard_icon",
-            "token": "down-small-ccm_outlined",
-          },
-          "icon_expanded_angle": -180,
-          "icon_position": "follow_text",
-          "title": {
-            "content": "🧠 **思考完成，点击查看**",
-            "tag": "markdown",
-          },
-          "vertical_align": "center",
-        },
-        "padding": "8px 8px 8px 8px",
-        "tag": "collapsible_panel",
-        "vertical_spacing": "8px",
+        "content": "**当前进度**
+1. checking options",
+        "tag": "markdown",
+        "text_size": "notation",
       },
       {
         "content": "final answer",
@@ -410,7 +360,10 @@ exports[`run card renderer snapshots > renders initial running state 1`] = `
 `;
 
 exports[`run card renderer snapshots > renders markdown text mode without card-only controls 1`] = `
-"Answer
+"**当前进度**
+1. hidden reasoning
+
+Answer
 
 > ✅ **Bash** — pwd
 
@@ -420,7 +373,10 @@ _✍️ 正在输出…_"
 `;
 
 exports[`run card renderer snapshots > renders markdown text mode without card-only controls 2`] = `
-"Answer
+"**当前进度**
+1. hidden reasoning
+
+Answer
 
 > ✅ **Bash** — pwd
 
@@ -430,7 +386,10 @@ _⏹ 已被中断_"
 `;
 
 exports[`run card renderer snapshots > renders markdown text mode without card-only controls 3`] = `
-"Answer
+"**当前进度**
+1. hidden reasoning
+
+Answer
 
 > ✅ **Bash** — pwd
 

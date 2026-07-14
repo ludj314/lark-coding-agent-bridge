@@ -25,6 +25,20 @@ describe('run card renderer snapshots', () => {
     ])).toMatchSnapshot();
   });
 
+  it('renders current progress summary instead of raw thinking panel', () => {
+    const card = JSON.stringify(renderCard(stateFrom([
+      { type: 'thinking', delta: '> ✅ **Read** — /repo/src/a.ts\n' },
+      { type: 'thinking', delta: '> 先改测试。\n' },
+      { type: 'thinking', delta: '实现 compact summary。\n' },
+    ])));
+
+    expect(card).toContain('当前进度');
+    expect(card).toContain('先改测试。');
+    expect(card).toContain('实现 compact summary。');
+    expect(card).not.toContain('思考完成，点击查看');
+    expect(card).not.toContain('✅ **Read**');
+  });
+
   it('renders tool running, done, and error states', () => {
     expectCard(stateFrom([
       { type: 'tool_use', id: 'tool-1', name: 'Bash', input: { command: 'pwd' } },

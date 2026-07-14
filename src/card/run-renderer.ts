@@ -21,7 +21,9 @@ export interface RunCardRenderOptions {
 export function renderCard(state: RunState, options: RunCardRenderOptions = {}): object {
   const elements: object[] = [];
 
-  if (state.reasoning.content) {
+  if (state.progress.entries.length > 0) {
+    elements.push(currentProgress(state.progress.entries));
+  } else if (state.reasoning.content) {
     elements.push(reasoningPanel(state.reasoning.content, state.reasoning.active));
   }
 
@@ -92,6 +94,11 @@ function renderToolGroup(tools: ToolEntry[], finalized: boolean): object[] {
   if (prior.length > 0) out.push(collapsedToolSummary(prior, false));
   if (latest) out.push(toolPanel(latest, true));
   return out;
+}
+
+function currentProgress(entries: string[]): object {
+  const list = entries.map((entry, index) => `${index + 1}. ${entry}`).join('\n');
+  return noteMd(`**当前进度**\n${list}`);
 }
 
 function reasoningPanel(content: string, active: boolean): object {

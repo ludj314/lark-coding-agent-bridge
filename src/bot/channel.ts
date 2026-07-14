@@ -77,8 +77,7 @@ import {
 const DEBOUNCE_MS = 600;
 const STREAM_TERMINAL_GRACE_MS = 3000;
 const FINAL_SUMMARY_NOTIFY_AFTER_MS = 60_000;
-const FINAL_SUMMARY_MAX_CHARS = 1000;
-const EMPTY_FINAL_SUMMARY = '✅ 已完成，详情请查看前面的进展消息。';
+const FINAL_COMPLETION_REMINDER = '✅ 已完成，点开前面的进展消息查看。';
 const REACTION_CLEANUP_GRACE_MS = 1000;
 
 const BRIDGE_AGENT_INSTRUCTIONS = [
@@ -1146,14 +1145,6 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   }
 }
 
-function formatFinalSummary(raw: string): string {
-  const body = raw.trim() || EMPTY_FINAL_SUMMARY;
-  if (body.length <= FINAL_SUMMARY_MAX_CHARS) return body;
-  const marker = '\n\n…（最终总结已截断，仅保留末尾；完整内容请查看前面的进展消息。）\n\n';
-  const tailLen = Math.max(0, FINAL_SUMMARY_MAX_CHARS - marker.length);
-  return `${marker}${body.slice(-tailLen)}`.slice(0, FINAL_SUMMARY_MAX_CHARS);
-}
-
 export async function sendFinalAnswerFallback(input: {
   channel: Pick<LarkChannel, 'send'>;
   chatId: string;
@@ -1163,21 +1154,7 @@ export async function sendFinalAnswerFallback(input: {
   sendOpts: { replyTo: string; replyInThread?: boolean };
   reason: string;
 }): Promise<void> {
-  const body = formatFinalSummary(
-    renderText({
-      ...finalAnswerOnlyState(input.state),
-      terminal: 'running',
-      footer: null,
-    }).trim(),
-  );
-  if (!body) {
-    log.warn('outbound', 'final-fallback-empty', {
-      scope: input.scope,
-      mode: input.replyMode,
-      reason: input.reason,
-    });
-    return;
-  }
+  const body = input.state.terminal === 'done' ? FINAL_COMPLETION_REMINDER : renderText(input.state);
 
   try {
     const result = await input.channel.send(
