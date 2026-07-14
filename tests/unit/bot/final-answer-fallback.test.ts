@@ -51,7 +51,7 @@ describe('final answer fallback', () => {
     expect(fallback).toHaveBeenCalledWith(state);
   });
 
-  it('sends a short completion notice for successful final fallback', async () => {
+  it('sends final text when a successful final fallback has content', async () => {
     const send = vi.fn().mockResolvedValue({ messageId: 'om_final' });
     const state: RunState = {
       blocks: [
@@ -76,7 +76,7 @@ describe('final answer fallback', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
       'oc_chat',
-      { markdown: '✅ 已完成，详情请查看前面的进展消息。' },
+      { markdown: '最终结论：任务已完成。' },
       { replyTo: 'om_input' },
     );
   });
