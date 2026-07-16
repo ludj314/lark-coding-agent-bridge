@@ -204,10 +204,26 @@ function isAdminCommand(cmd: string): boolean {
   return ADMIN_COMMANDS.has(cmd.startsWith('/') ? cmd : `/${cmd}`);
 }
 
+function commandTextFromMessage(msg: NormalizedMessage): string | undefined {
+  const trimmed = msg.content.trim();
+  if (trimmed.startsWith('/')) return trimmed;
+  for (const mention of msg.mentions ?? []) {
+    if (!mention.isBot) continue;
+    const key = typeof mention.key === 'string' ? mention.key.trim() : '';
+    const name = typeof mention.name === 'string' ? mention.name.trim() : '';
+    for (const marker of [key, name ? `@${name}` : '']) {
+      if (!marker || !trimmed.startsWith(marker)) continue;
+      const rest = trimmed.slice(marker.length).trimStart();
+      if (rest.startsWith('/')) return rest;
+    }
+  }
+  return undefined;
+}
+
 export async function tryHandleCommand(ctx: CommandContext): Promise<boolean> {
-  const trimmed = ctx.msg.content.trim();
-  if (!trimmed.startsWith('/')) return false;
-  const parts = trimmed.split(/\s+/);
+  const commandText = commandTextFromMessage(ctx.msg);
+  if (!commandText) return false;
+  const parts = commandText.split(/\s+/);
   const cmd = parts[0] ?? '';
   const args = parts.slice(1).join(' ');
   const h = handlers[cmd];

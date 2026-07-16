@@ -88,6 +88,23 @@ describe('Bridge command contracts', () => {
     await expect(realpath(topicDefault)).resolves.toBe(h.workspaces.cwdFor('topic-chat'));
   });
 
+  it('handles slash commands after a direct bot mention in topic groups', async () => {
+    const h = await createHarness();
+    const topicDefault = join(h.tmp.root, 'mentioned-topic-default');
+    await mkdir(topicDefault, { recursive: true });
+
+    await expect(h.run(`@Celia /cd --chat ${topicDefault}`, {
+      chatId: 'topic-chat',
+      scope: 'topic-chat:thread-1',
+      chatMode: 'topic',
+      mentions: [{ key: '@Celia', openId: 'ou_bot', name: 'Celia', isBot: true }],
+    })).resolves.toBe(true);
+
+    expect(lastMarkdown(h.channel)).toContain('已设置本群新话题默认 cwd');
+    await expect(realpath(topicDefault)).resolves.toBe(h.workspaces.cwdFor('topic-chat'));
+    expect(h.agent.runOptions).toHaveLength(0);
+  });
+
   it('scopes named workspaces by profile, scope, and owner', async () => {
     const h = await createHarness();
     const alternate = join(h.tmp.root, 'alternate');
