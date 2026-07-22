@@ -72,16 +72,21 @@ describe('access policy', () => {
     expect(canUseDm(byAdmin, ownerControls, 'ou_other').ok).toBe(true);
   });
 
-  it('fails closed for groups unless owner, admin, or allowedChats includes the chat', () => {
-    const closed = profileWithAccess();
-    expect(canUseGroup(closed, ownerControls, 'chat_allowed', 'ou_other').ok).toBe(false);
+  it('allows group messages regardless of allowedChats; mention gating happens at intake', () => {
+    const closed = profileWithAccess({ allowedChats: [] });
+    expect(canUseGroup(closed, ownerControls, 'chat_new', 'ou_other')).toEqual({
+      ok: true,
+      reason: 'allowed-chat',
+    });
 
     const allowed = profileWithAccess({ allowedChats: ['chat_allowed'] });
-    expect(canUseGroup(allowed, ownerControls, 'chat_allowed', 'ou_other').ok).toBe(true);
-    expect(canUseGroup(allowed, ownerControls, 'chat_other', 'ou_other').ok).toBe(false);
+    expect(canUseGroup(allowed, ownerControls, 'chat_other', 'ou_other')).toEqual({
+      ok: true,
+      reason: 'allowed-chat',
+    });
   });
 
-  it('lets admins use groups before the chat is allowlisted', () => {
+  it('preserves owner/admin reasons for group access decisions', () => {
     const profile = profileWithAccess({ admins: ['ou_admin'] });
 
     expect(canUseGroup(profile, ownerControls, 'chat_new', 'ou_admin')).toEqual({

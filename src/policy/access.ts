@@ -42,13 +42,12 @@ export function canUseDm(
 export function canUseGroup(
   profile: ProfileConfig,
   controls: RuntimeControls,
-  chatId: string,
+  _chatId: string,
   senderId: string,
 ): AccessDecision {
   if (isCreator(controls, senderId)) return allow('owner');
   if (profile.access.admins.includes(senderId)) return allow('allowed-admin');
-  if (profile.access.allowedChats.includes(chatId)) return allow('allowed-chat');
-  return deny('denied-chat');
+  return allow('allowed-chat');
 }
 
 export function canRunAdminCommand(
