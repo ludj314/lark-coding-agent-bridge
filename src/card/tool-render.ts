@@ -72,9 +72,30 @@ function summarizeInput(name: string, input: unknown): string {
     case 'Agent':
     case 'Task':
       return pick('description') || pick('subagent_type');
+    case 'Skill':
+      return pick('skill') || pick('args');
+    case 'TaskCreate':
+      return pick('subject') || pick('description');
+    case 'TaskUpdate':
+      return summarizeTaskUpdate(rec);
+    case 'TaskGet': {
+      const taskId = pick('taskId', 20);
+      return taskId ? `#${taskId}` : '';
+    }
     default:
       return pick('command') || pick('file_path') || pick('path') || pick('query');
   }
+}
+
+function summarizeTaskUpdate(rec: Record<string, unknown>): string {
+  const taskId = typeof rec.taskId === 'string' ? rec.taskId.trim() : '';
+  const status = typeof rec.status === 'string' ? rec.status.trim() : '';
+  const subject = typeof rec.subject === 'string' ? rec.subject.replace(/\s+/g, ' ').trim() : '';
+  const owner = typeof rec.owner === 'string' ? rec.owner.trim() : '';
+  const head = taskId ? `#${taskId}` : '';
+  const transition = status ? `${head ? `${head} → ` : ''}${status}` : head;
+  const suffix = subject ? ` (${truncate(subject, 48)})` : owner ? ` (owner: ${truncate(owner, 32)})` : '';
+  return `${transition}${suffix}`.trim();
 }
 
 function renderInput(tool: ToolEntry): string {
@@ -105,6 +126,29 @@ function renderInput(tool: ToolEntry): string {
       return str('url') ? `**URL** ${str('url')}` : '';
     case 'WebSearch':
       return str('query') ? `**Query** \`${truncate(str('query'), BODY_FIELD_MAX)}\`` : '';
+    case 'Skill': {
+      const lines: string[] = [];
+      if (str('skill')) lines.push(`**Skill** \`${str('skill')}\``);
+      if (str('args')) lines.push(`**Args** ${truncate(str('args'), BODY_FIELD_MAX)}`);
+      return lines.join('\n');
+    }
+    case 'TaskCreate': {
+      const lines: string[] = [];
+      if (str('subject')) lines.push(`**Subject** ${truncate(str('subject'), BODY_FIELD_MAX)}`);
+      if (str('description')) lines.push(`**Description** ${truncate(str('description'), BODY_FIELD_MAX)}`);
+      if (str('activeForm')) lines.push(`**Active form** ${truncate(str('activeForm'), BODY_FIELD_MAX)}`);
+      return lines.join('\n');
+    }
+    case 'TaskUpdate':
+    case 'TaskGet': {
+      const lines: string[] = [];
+      if (str('taskId')) lines.push(`**Task** \`#${str('taskId')}\``);
+      if (str('status')) lines.push(`**Status** \`${str('status')}\``);
+      if (str('owner')) lines.push(`**Owner** \`${str('owner')}\``);
+      if (str('subject')) lines.push(`**Subject** ${truncate(str('subject'), BODY_FIELD_MAX)}`);
+      if (str('description')) lines.push(`**Description** ${truncate(str('description'), BODY_FIELD_MAX)}`);
+      return lines.join('\n');
+    }
     default:
       return '';
   }
