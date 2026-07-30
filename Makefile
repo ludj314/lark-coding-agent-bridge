@@ -1,4 +1,4 @@
-.PHONY: build start-bridge restart-bridge logs-bridge ps-bridge stop-bridge
+.PHONY: build start-bridge restart-bridge logs-bridge ps-bridge stop-bridge clean-bridge-tmux
 
 PROFILES ?= claude codex
 ifeq ($(origin PROFILE), undefined)
@@ -7,47 +7,42 @@ else
 TARGET_PROFILES := $(PROFILE)
 endif
 
-session_name = lark-bridge-$(1)
-bridge_cmd = node ./bin/lark-channel-bridge.mjs run --profile $(1)
+BRIDGE_CLI := node ./bin/lark-channel-bridge.mjs
 
 build:
 	npm run build
 
-start-bridge: build
+clean-bridge-tmux:
+	@tmux kill-session -t lark-bridge 2>/dev/null || true
 	@for profile in $(TARGET_PROFILES); do \
-		session="$(call session_name,$$profile)"; \
-		cmd="$(call bridge_cmd,$$profile)"; \
-		if tmux has-session -t "$$session" 2>/dev/null; then \
-			echo "already running $$session: $$cmd"; \
-		else \
-			tmux new -d -s "$$session" "$$cmd"; \
-			echo "started $$session: $$cmd"; \
-		fi; \
+		tmux kill-session -t "lark-bridge-$$profile" 2>/dev/null || true; \
 	done
 
-restart-bridge: build
+start-bridge: build clean-bridge-tmux
 	@for profile in $(TARGET_PROFILES); do \
-		session="$(call session_name,$$profile)"; \
-		cmd="$(call bridge_cmd,$$profile)"; \
-		tmux kill-session -t "$$session" 2>/dev/null || true; \
-		tmux new -d -s "$$session" "$$cmd"; \
-		echo "restarted $$session: $$cmd"; \
-		tmux capture-pane -t "$$session" -p -S -20; \
+		echo "starting bridge profile $$profile"; \
+		$(BRIDGE_CLI) start --profile $$profile; \
+	done
+
+restart-bridge: build clean-bridge-tmux
+	@for profile in $(TARGET_PROFILES); do \
+		echo "restarting bridge profile $$profile"; \
+		$(BRIDGE_CLI) restart --profile $$profile; \
 	done
 
 logs-bridge:
 	@for profile in $(TARGET_PROFILES); do \
-		session="$(call session_name,$$profile)"; \
-		echo "== $$session =="; \
-		tmux capture-pane -t "$$session" -p -S -80 2>/dev/null || echo "not running"; \
+		echo "== $$profile daemon logs =="; \
+		$(BRIDGE_CLI) status --profile $$profile; \
+		tail -n 80 "/home/ludejian/.lark-channel/profiles/$$profile/logs/daemon/daemon-stdout.log" 2>/dev/null || true; \
+		tail -n 80 "/home/ludejian/.lark-channel/profiles/$$profile/logs/daemon/daemon-stderr.log" 2>/dev/null || true; \
 	done
 
 ps-bridge:
-	@tmux list-sessions 2>/dev/null | grep '^lark-bridge-' || true
-	@ps -ef | grep lark-channel-bridge | grep -v grep || true
+	@$(BRIDGE_CLI) ps
 
-stop-bridge:
+stop-bridge: clean-bridge-tmux
 	@for profile in $(TARGET_PROFILES); do \
-		session="$(call session_name,$$profile)"; \
-		tmux kill-session -t "$$session" 2>/dev/null && echo "stopped $$session" || echo "not running $$session"; \
+		echo "stopping bridge profile $$profile"; \
+		$(BRIDGE_CLI) stop --profile $$profile; \
 	done

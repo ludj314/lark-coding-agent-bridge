@@ -1092,8 +1092,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         },
       );
       const finalState = await renderDone;
-      const terminal = segmenter.terminal(filterForPrefs(finalState));
-      if (terminal) {
+      for (const terminal of segmenter.terminalSegments(filterForPrefs(finalState))) {
         await upsertProgressCard({
           channel,
           chatId,

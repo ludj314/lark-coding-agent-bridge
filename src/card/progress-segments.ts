@@ -2,7 +2,7 @@ import type { Block, RunState, ToolEntry } from './run-state';
 import { toolHeaderText } from './tool-render';
 
 export const PROGRESS_SEGMENT_MAX_CHARS = 10_000;
-export const PROGRESS_SEGMENT_MIN_INTERVAL_MS = 120_000;
+export const PROGRESS_SEGMENT_NEXT_MIN_CHARS = 500;
 const HEADER_RESERVE = 80;
 
 export interface ProgressSegment {
@@ -13,59 +13,49 @@ export interface ProgressSegment {
 
 export class ProgressSegmenter {
   private readonly maxChars: number;
-  private readonly minIntervalMs: number;
+  private readonly nextSegmentMinChars: number;
   private readonly now: () => number;
   private emittedChars = 0;
   private activeIndex = 1;
   private lastSentAt = 0;
   private activeStart = 0;
   private activeContent = '';
-  private activeFull = false;
+  private activeComplete = false;
 
-  constructor(opts: { maxChars?: number; minIntervalMs?: number; now?: () => number } = {}) {
+  constructor(opts: { maxChars?: number; minIntervalMs?: number; nextSegmentMinChars?: number; now?: () => number } = {}) {
     this.maxChars = opts.maxChars ?? PROGRESS_SEGMENT_MAX_CHARS;
-    this.minIntervalMs = opts.minIntervalMs ?? PROGRESS_SEGMENT_MIN_INTERVAL_MS;
+    this.nextSegmentMinChars = opts.nextSegmentMinChars ?? PROGRESS_SEGMENT_NEXT_MIN_CHARS;
     this.now = opts.now ?? Date.now;
   }
 
   update(state: RunState): ProgressSegment | undefined {
     const full = renderProgressBody(state).trim();
-    const header = this.header(state, false);
-    const bodyBudget = Math.max(0, this.maxChars - header.length - HEADER_RESERVE);
-    const currentActive = full.slice(this.activeStart, this.emittedChars);
-    if (!this.activeFull && currentActive && currentActive !== this.activeContent) {
-      this.activeContent = full.slice(this.activeStart, this.activeStart + bodyBudget);
-      this.emittedChars = this.activeStart + this.activeContent.length;
-      return this.segment(state, false);
-    }
-    const delta = full.slice(this.emittedChars);
-    if (!delta) return undefined;
+    const bodyBudget = this.bodyBudget(state, false);
 
-    if (this.activeFull) {
-      if (this.now() - this.lastSentAt < this.minIntervalMs) return undefined;
-      this.activeIndex += 1;
-      this.activeStart = this.emittedChars;
-      this.activeContent = '';
-      this.activeFull = false;
+    if (!this.activeComplete) {
+      const activeEnd = findSegmentEnd(full, this.activeStart, bodyBudget, false);
+      const nextActiveContent = full.slice(this.activeStart, activeEnd);
+      if (!nextActiveContent) return undefined;
+      if (nextActiveContent !== this.activeContent) {
+        this.activeContent = nextActiveContent;
+        this.emittedChars = this.activeStart + this.activeContent.length;
+        this.activeComplete = this.emittedChars < full.length;
+        return this.segment(state, false);
+      }
+      this.activeComplete = this.emittedChars < full.length;
     }
 
-    const available = Math.max(0, bodyBudget - this.activeContent.length);
-    if (available <= 0) {
-      this.activeFull = true;
-      return undefined;
-    }
+    if (!this.activeComplete) return undefined;
 
-    const chunk = delta.slice(0, available);
-    this.activeContent += chunk;
-    this.emittedChars += chunk.length;
-    if (chunk.length < delta.length || this.activeContent.length >= bodyBudget) {
-      // This segment is full. Drop the overflow from this full-state render;
-      // future segments should contain only content produced after this cutoff,
-      // not the remainder of an already-truncated oversized update.
-      this.emittedChars = full.length;
-      this.activeFull = true;
-    }
+    const pendingLength = full.length - this.emittedChars;
+    if (pendingLength < this.nextSegmentMinChars) return undefined;
 
+    this.activeIndex += 1;
+    this.activeStart = this.emittedChars;
+    const activeEnd = findSegmentEnd(full, this.activeStart, bodyBudget, false);
+    this.activeContent = full.slice(this.activeStart, activeEnd);
+    this.emittedChars = this.activeStart + this.activeContent.length;
+    this.activeComplete = this.emittedChars < full.length;
     return this.segment(state, false);
   }
 
@@ -74,13 +64,40 @@ export class ProgressSegmenter {
   }
 
   terminal(state: RunState): ProgressSegment | undefined {
-    if (!this.activeContent && this.emittedChars === 0) return undefined;
-    return this.segment(state, true);
+    return this.terminalSegments(state)[0];
+  }
+
+  terminalSegments(state: RunState): ProgressSegment[] {
+    const full = renderProgressBody(state).trim();
+    if (!this.activeContent && this.emittedChars === 0 && !full) return [];
+
+    const segments: ProgressSegment[] = [];
+    if (this.activeContent || this.emittedChars > this.activeStart) {
+      segments.push(this.segment(state, true));
+    }
+
+    const bodyBudget = this.bodyBudget(state, true);
+    while (this.emittedChars < full.length) {
+      this.activeIndex += 1;
+      this.activeStart = this.emittedChars;
+      const activeEnd = findSegmentEnd(full, this.activeStart, bodyBudget, true);
+      this.activeContent = full.slice(this.activeStart, activeEnd);
+      this.emittedChars = this.activeStart + this.activeContent.length;
+      this.activeComplete = this.emittedChars < full.length;
+      segments.push(this.segment(state, true));
+    }
+
+    return segments;
   }
 
   private segment(state: RunState, terminal: boolean): ProgressSegment {
-    const content = `${this.header(state, terminal)}\n\n${this.activeContent}`.slice(0, this.maxChars);
+    const content = `${this.header(state, terminal)}\n\n${this.activeContent}`;
     return { index: this.activeIndex, content, terminal };
+  }
+
+  private bodyBudget(state: RunState, terminal: boolean): number {
+    const header = this.header(state, terminal);
+    return Math.max(0, this.maxChars - header.length - HEADER_RESERVE);
   }
 
   private header(state: RunState, terminal: boolean): string {
@@ -88,6 +105,38 @@ export class ProgressSegmenter {
     const elapsed = state.durationMs !== undefined ? `\n已用时：${formatDuration(state.durationMs)}` : '';
     return `进展更新 #${this.activeIndex}\n状态：${status}${elapsed}`;
   }
+}
+
+function findSegmentEnd(full: string, start: number, budget: number, terminal: boolean): number {
+  if (start >= full.length) return start;
+  const target = Math.min(full.length, start + budget);
+  if (target >= full.length) return full.length;
+
+  const boundary = findBoundaryAtOrAfter(full, target, start);
+  if (boundary !== undefined) return boundary;
+
+  if (!terminal) return full.length;
+  return Math.min(full.length, Math.max(start + 1, target));
+}
+
+function findBoundaryAtOrAfter(full: string, target: number, start: number): number | undefined {
+  for (let i = target; i < full.length; i += 1) {
+    if (isBoundary(full, i)) return i + 1;
+  }
+
+  for (let i = target - 1; i >= start; i -= 1) {
+    if (isBoundary(full, i)) return i + 1;
+  }
+
+  return undefined;
+}
+
+function isBoundary(full: string, index: number): boolean {
+  const char = full[index];
+  if (!char) return false;
+  if (char === '\n') return true;
+  if (/[。！？.!?]/u.test(char)) return true;
+  return false;
 }
 
 function renderProgressBody(state: RunState): string {

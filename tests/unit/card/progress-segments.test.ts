@@ -3,41 +3,66 @@ import { ProgressSegmenter } from '../../../src/card/progress-segments.js';
 import type { RunState } from '../../../src/card/run-state.js';
 
 describe('ProgressSegmenter', () => {
-  it('keeps one progress segment under the configured character cap', () => {
-    let now = 0;
-    const segmenter = new ProgressSegmenter({ maxChars: 120, minIntervalMs: 120_000, now: () => now });
+  it('uses a 10000-character default soft cap', () => {
+    const segmenter = new ProgressSegmenter({ nextSegmentMinChars: 500, now: () => 0 });
+    const text = `${'A'.repeat(9_500)}.\n${'B'.repeat(400)}`;
+    const first = segmenter.update(stateWithText(text));
+    expect(first).toBeDefined();
+    segmenter.markSent(first!);
+
+    const second = segmenter.update(stateWithText(`${text}${'B'.repeat(100)}`));
+
+    expect(second?.index).toBe(1);
+  });
+
+  it('allows one progress segment to exceed the soft cap until a readable boundary appears', () => {
+    const segmenter = new ProgressSegmenter({ maxChars: 120, nextSegmentMinChars: 50, now: () => 0 });
     const first = segmenter.update(stateWithText('A'.repeat(200)));
 
-    expect(first?.content.length).toBeLessThanOrEqual(120);
+    expect(first?.content.length).toBeGreaterThan(120);
     expect(first?.content).toContain('进展更新 #1');
   });
 
-  it('does not emit a second segment before the minimum interval elapses', () => {
-    let now = 0;
-    const segmenter = new ProgressSegmenter({ maxChars: 120, minIntervalMs: 120_000, now: () => now });
-    const first = segmenter.update(stateWithText('A'.repeat(200)));
+  it('starts the next card after a completed segment has at least the configured minimum tail', () => {
+    const segmenter = new ProgressSegmenter({ maxChars: 120, nextSegmentMinChars: 20, now: () => 0 });
+    const firstText = `${'A'.repeat(50)}.\n${'B'.repeat(10)}`;
+    const first = segmenter.update(stateWithText(firstText));
     expect(first).toBeDefined();
+    expect(first?.index).toBe(1);
+    expect(first?.content).toContain('A'.repeat(50));
+    expect(first?.content).not.toContain('B'.repeat(10));
     segmenter.markSent(first!);
 
-    now = 60_000;
-    const second = segmenter.update(stateWithText('A'.repeat(200) + '\n' + 'B'.repeat(50)));
+    expect(segmenter.update(stateWithText(`${firstText}${'B'.repeat(8)}`))).toBeUndefined();
 
-    expect(second).toBeUndefined();
-  });
-
-  it('emits only new buffered content in the next segment after the interval', () => {
-    let now = 0;
-    const segmenter = new ProgressSegmenter({ maxChars: 120, minIntervalMs: 120_000, now: () => now });
-    const first = segmenter.update(stateWithText('A'.repeat(200)));
-    expect(first).toBeDefined();
-    segmenter.markSent(first!);
-
-    now = 121_000;
-    const second = segmenter.update(stateWithText('A'.repeat(200) + '\nNEW-ONLY-CONTENT'));
+    const second = segmenter.update(stateWithText(`${firstText}${'B'.repeat(9)}`));
 
     expect(second?.index).toBe(2);
-    expect(second?.content).toContain('NEW-ONLY-CONTENT');
-    expect(second?.content).not.toContain('A'.repeat(80));
+    expect(second?.content).toContain('B'.repeat(19));
+    expect(second?.content).not.toContain('A'.repeat(40));
+  });
+
+  it('terminal drain emits a short remaining tail without waiting for the minimum', () => {
+    const segmenter = new ProgressSegmenter({ maxChars: 120, nextSegmentMinChars: 50, now: () => 0 });
+    const text = `${'A'.repeat(50)}.\nshort tail`;
+    const first = segmenter.update(stateWithText(text));
+    expect(first).toBeDefined();
+    segmenter.markSent(first!);
+
+    const terminal = segmenter.terminalSegments({ ...stateWithText(text), terminal: 'done', footer: null });
+
+    expect(terminal.map((segment) => segment.index)).toEqual([1, 2]);
+    const [completedSegment, tailSegment] = terminal;
+    expect(completedSegment?.content).toContain('✅ 已完成');
+    expect(tailSegment?.content).toContain('short tail');
+  });
+
+  it('keeps an unfinished sentence on the same card past the soft limit', () => {
+    const segmenter = new ProgressSegmenter({ maxChars: 120, nextSegmentMinChars: 20, now: () => 0 });
+    const first = segmenter.update(stateWithText('A'.repeat(140)));
+
+    expect(first?.index).toBe(1);
+    expect(first?.content).toContain('A'.repeat(140));
   });
 
   it('updates previously emitted tool status in the active segment', () => {
@@ -84,21 +109,22 @@ describe('ProgressSegmenter', () => {
     expect(segment?.content).not.toContain('> ✅ **Bash**');
   });
 
-  it('terminal update targets the current visible segment and does not emit unsent tail content', () => {
-    let now = 0;
-    const segmenter = new ProgressSegmenter({ maxChars: 120, minIntervalMs: 120_000, now: () => now });
-    const first = segmenter.update(stateWithText('A'.repeat(200)));
+  it('terminal drain emits pending tail content without duplication', () => {
+    const segmenter = new ProgressSegmenter({ maxChars: 120, nextSegmentMinChars: 50, now: () => 0 });
+    const text = `${'A'.repeat(50)}.\nUNSENT-TAIL`;
+    const first = segmenter.update(stateWithText(text));
     expect(first).toBeDefined();
     segmenter.markSent(first!);
 
-    now = 60_000;
-    segmenter.update(stateWithText('A'.repeat(200) + '\nUNSENT-TAIL'));
-    const terminal = segmenter.terminal({ ...stateWithText('A'.repeat(200) + '\nUNSENT-TAIL'), terminal: 'done', footer: null });
+    const terminal = segmenter.terminalSegments({ ...stateWithText(text), terminal: 'done', footer: null });
 
-    expect(terminal?.index).toBe(1);
-    expect(terminal?.terminal).toBe(true);
-    expect(terminal?.content).toContain('✅ 已完成');
-    expect(terminal?.content).not.toContain('UNSENT-TAIL');
+    expect(terminal.map((segment) => segment.index)).toEqual([1, 2]);
+    const [completedSegment, tailSegment] = terminal;
+    expect(completedSegment?.terminal).toBe(true);
+    expect(completedSegment?.content).toContain('✅ 已完成');
+    expect(completedSegment?.content).not.toContain('UNSENT-TAIL');
+    expect(tailSegment?.content).toContain('UNSENT-TAIL');
+    expect(tailSegment?.content).not.toContain('A'.repeat(40));
   });
 });
 
