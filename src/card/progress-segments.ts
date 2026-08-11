@@ -112,11 +112,60 @@ function findSegmentEnd(full: string, start: number, budget: number, terminal: b
   const target = Math.min(full.length, start + budget);
   if (target >= full.length) return full.length;
 
+  const tableBoundary = markdownTableBoundary(full, target, start);
+  if (tableBoundary !== undefined) return tableBoundary;
+
   const boundary = findBoundaryAtOrAfter(full, target, start);
   if (boundary !== undefined) return boundary;
 
   if (!terminal) return full.length;
   return Math.min(full.length, Math.max(start + 1, target));
+}
+
+function markdownTableBoundary(full: string, target: number, start: number): number | undefined {
+  const lines = lineRanges(full);
+  const lineIndex = lines.findIndex((line) => target >= line.start && target <= line.end);
+  if (lineIndex < 0) return undefined;
+
+  const line = lines[lineIndex]!;
+  if (!isMarkdownTableLine(full.slice(line.start, line.end))) return undefined;
+
+  let tableStartLine = lineIndex;
+  while (tableStartLine > 0) {
+    const previousLine = lines[tableStartLine - 1]!;
+    if (!isMarkdownTableLine(full.slice(previousLine.start, previousLine.end))) break;
+    tableStartLine -= 1;
+  }
+
+  let tableEndLine = lineIndex;
+  while (tableEndLine + 1 < lines.length) {
+    const nextLine = lines[tableEndLine + 1]!;
+    if (!isMarkdownTableLine(full.slice(nextLine.start, nextLine.end))) break;
+    tableEndLine += 1;
+  }
+
+  const tableStart = lines[tableStartLine]!.start;
+  if (tableStart > start) return tableStart;
+
+  const tableEnd = lines[tableEndLine]!.end;
+  return tableEnd > target ? tableEnd : undefined;
+}
+
+function lineRanges(full: string): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  let start = 0;
+  for (let i = 0; i <= full.length; i += 1) {
+    if (i === full.length || full[i] === '\n') {
+      ranges.push({ start, end: i });
+      start = i + 1;
+    }
+  }
+  return ranges;
+}
+
+function isMarkdownTableLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith('|') && trimmed.endsWith('|');
 }
 
 function findBoundaryAtOrAfter(full: string, target: number, start: number): number | undefined {

@@ -3,6 +3,14 @@ import { ProgressSegmenter } from '../../../src/card/progress-segments.js';
 import type { RunState } from '../../../src/card/run-state.js';
 
 describe('ProgressSegmenter', () => {
+  it('emits the first card immediately regardless of the next-card threshold', () => {
+    const segmenter = new ProgressSegmenter({ maxChars: 10_000, nextSegmentMinChars: 500, now: () => 0 });
+    const first = segmenter.update(stateWithText('short first reply'));
+
+    expect(first?.index).toBe(1);
+    expect(first?.content).toContain('short first reply');
+  });
+
   it('uses a 10000-character default soft cap', () => {
     const segmenter = new ProgressSegmenter({ nextSegmentMinChars: 500, now: () => 0 });
     const text = `${'A'.repeat(9_500)}.\n${'B'.repeat(400)}`;
@@ -107,6 +115,27 @@ describe('ProgressSegmenter', () => {
     expect(segment?.content).toContain('我先按根因排查来。');
     expect(segment?.content).toContain('继续跑 progress segment 测试');
     expect(segment?.content).not.toContain('> ✅ **Bash**');
+  });
+
+  it('does not split markdown tables in the middle of a table row', () => {
+    const segmenter = new ProgressSegmenter({ maxChars: 160, nextSegmentMinChars: 20, now: () => 0 });
+    const intro = `${'A'.repeat(60)}.\n`;
+    const table = [
+      '| Sheet 行 | 罗盘接口 | 指标 | 接口返回字段 / 路径 | 备注 |',
+      '| -------- | -------- | -------- | -------- | -------- |',
+      '| 6 | `/api/v:version/insights/seller/ttp/product/list` | GMV | **当前 v3：** `data.items[].stats_v3.total.gmv` | 当前 Product Analytics 使用 v3 |',
+      '| 6 | 同上 | Items sold | **当前 v3：** `data.items[].stats_v3.total.items_sold` |  |',
+    ].join('\n');
+    const first = segmenter.update(stateWithText(`${intro}${table}`));
+    expect(first).toBeDefined();
+    segmenter.markSent(first!);
+
+    const second = segmenter.update(stateWithText(`${intro}${table}\n${'tail'.repeat(10)}`));
+
+    expect(second?.index).toBe(2);
+    expect(first?.content).not.toContain('| Sheet 行 | 罗盘接口 | 指标 | 接口返回字段 / 路径 | 备注 |');
+    expect(second?.content).toContain('| Sheet 行 | 罗盘接口 | 指标 | 接口返回字段 / 路径 | 备注 |');
+    expect(second?.content).toContain('stats_v3.total.gmv` | 当前 Product Analytics 使用 v3 |');
   });
 
   it('terminal drain emits pending tail content without duplication', () => {
