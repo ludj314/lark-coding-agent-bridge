@@ -132,6 +132,18 @@ export class SessionCatalog {
     return true;
   }
 
+  removeScope(scopeId: string): number {
+    let removed = 0;
+    for (const [key, entry] of this.data.entries()) {
+      if (entry.scopeId === scopeId) {
+        this.data.delete(key);
+        removed++;
+      }
+    }
+    if (removed > 0) this.schedulePersist();
+    return removed;
+  }
+
   removeScopePrefix(scopePrefix: string): number {
     let removed = 0;
     for (const [key, entry] of this.data.entries()) {

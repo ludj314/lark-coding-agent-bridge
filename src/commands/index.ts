@@ -339,11 +339,14 @@ async function handleNew(args: string, ctx: CommandContext): Promise<void> {
   }
 
   const wasRunning = ctx.activeRuns.interrupt(ctx.scope);
-  if (ctx.sessionCatalog && ctx.sessionCatalogIdentity) {
-    ctx.sessionCatalog.archiveActive({
-      ...ctx.sessionCatalogIdentity,
-      now: Date.now(),
-    });
+  if (ctx.sessionCatalog) {
+    if (ctx.sessionCatalogIdentity) {
+      ctx.sessionCatalog.archiveActive({
+        ...ctx.sessionCatalogIdentity,
+        now: Date.now(),
+      });
+    }
+    ctx.sessionCatalog.removeScope(ctx.scope);
   }
   ctx.sessions.clear(ctx.scope);
   await reply(ctx, wasRunning ? '已中断当前任务并开始新会话。' : '已开始新会话。');

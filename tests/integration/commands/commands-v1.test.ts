@@ -6,6 +6,7 @@ import { ActiveRuns } from '../../../src/bot/active-runs.js';
 import { tryHandleCommand, type CommandContext, type Controls } from '../../../src/commands/index.js';
 import { createDefaultProfileConfig, type ProfileConfig } from '../../../src/config/profile-schema.js';
 import { createRootConfig, loadRootConfig, saveRootConfig } from '../../../src/config/profile-store.js';
+import { SessionCatalog } from '../../../src/session/catalog.js';
 import { SessionStore } from '../../../src/session/store.js';
 import { WorkspaceStore } from '../../../src/workspace/store.js';
 import { createFakeAgent } from '../../helpers/fake-agent.js';
@@ -18,6 +19,7 @@ interface RunOverrides {
   chatId?: string;
   chatMode?: CommandContext['chatMode'];
   mentions?: NormalizedMessage['mentions'];
+  sessionCatalog?: SessionCatalog;
 }
 
 interface Harness {
@@ -103,6 +105,31 @@ describe('Bridge command contracts', () => {
     expect(lastMarkdown(h.channel)).toContain('已设置本群新话题默认 cwd');
     await expect(realpath(topicDefault)).resolves.toBe(h.workspaces.cwdFor('topic-chat'));
     expect(h.agent.runOptions).toHaveLength(0);
+  });
+
+  it('clears topic session catalog entries with /new even when identity lookup is unavailable', async () => {
+    const h = await createHarness();
+    const cwdRealpath = await realpath(h.tmp.workspace);
+    const catalog = new SessionCatalog(join(h.tmp.profile, 'sessions.json.catalog.json'));
+    catalog.upsertActive({
+      scopeId: 'topic-chat:thread-1',
+      agentId: 'codex',
+      cwdRealpath,
+      policyFingerprint: 'policy-1',
+      threadId: 'thread-old',
+    });
+    await catalog.flush();
+
+    await expect(h.run('/new', {
+      chatId: 'topic-chat',
+      scope: 'topic-chat:thread-1',
+      chatMode: 'topic',
+      sessionCatalog: catalog,
+    })).resolves.toBe(true);
+
+    expect(catalog.entries().filter((entry) => entry.scopeId === 'topic-chat:thread-1')).toEqual([]);
+    await catalog.flush();
+    expect(lastMarkdown(h.channel)).toContain('已开始新会话');
   });
 
   it('scopes named workspaces by profile, scope, and owner', async () => {
@@ -421,6 +448,7 @@ async function createHarness(): Promise<Harness> {
       workspaces,
       agent,
       activeRuns,
+      sessionCatalog: overrides.sessionCatalog,
       controls,
     });
   };
